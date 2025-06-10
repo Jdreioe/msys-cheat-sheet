@@ -1,9 +1,7 @@
-# constants.py
-
-# Default CPU Frequency for calculations
+# Standard cpu frekvens
 CPU_FREQ_DEFAULT = 16_000_000 # 16 MHz
 
-# Prescaler options for Timer0 and Timer1 (CS bits)
+# Prescaler indstillinger for Timer0, Timer1 og Timer2
 PRESCALERS_T0_T1_T2 = {
     "T0_T1": { # For Timer0 and Timer1
         "1": 0b001,   # No prescaling (clk/1)
@@ -12,7 +10,7 @@ PRESCALERS_T0_T1_T2 = {
         "256": 0b100, # clk/256
         "1024": 0b101 # clk/1024
     },
-    "T2": { # For Timer2 (asynchronous capabilities often mean different prescalers)
+    "T2": { # For Timer2 
         "1": 0b001,
         "8": 0b010,
         "32": 0b011,
@@ -23,8 +21,8 @@ PRESCALERS_T0_T1_T2 = {
     }
 }
 
-# WGM (Waveform Generation Mode) bit configurations for Timer0
-# (WGM02 in TCCR0B, WGM01/WGM00 in TCCR0A)
+# WGM (Waveform Generation Mode) bit konfigurationer for Timer0
+# (WGM02 i TCCR0B, WGM01/WGM00 i TCCR0A)
 WGM_BITS_T0 = {
     "Normal": {"WGM02": 0, "WGM01": 0, "WGM00": 0},
     "Phase Correct PWM": {"WGM02": 0, "WGM01": 0, "WGM00": 1}, # Mode 1
@@ -32,8 +30,8 @@ WGM_BITS_T0 = {
     "Fast PWM": {"WGM02": 0, "WGM01": 1, "WGM00": 1}          # Mode 3
 }
 
-# WGM (Waveform Generation Mode) bit configurations for Timer1
-# (WGM13/WGM12 in TCCR1B, WGM11/WGM10 in TCCR1A)
+# WGM (Waveform Generation Mode) bit konfigurationer for Timer1
+# (WGM13/WGM12 i TCCR1B, WGM11/WGM10 i TCCR1A)
 WGM_BITS_T1 = {
     "Normal":                          {"WGM13": 0, "WGM12": 0, "WGM11": 0, "WGM10": 0, "TOP_fixed": 0xFFFF, "formula_factor": 1},
     "Phase Correct PWM (8-bit)":       {"WGM13": 0, "WGM12": 0, "WGM11": 0, "WGM10": 1, "TOP_fixed": 0x00FF, "formula_factor": 2}, # Mode 1 (TOP 0x00FF)
@@ -49,8 +47,8 @@ WGM_BITS_T1 = {
     "Fast PWM (TOP=OCR1A)":            {"WGM13": 1, "WGM12": 1, "WGM11": 1, "WGM10": 1, "TOP_variable": True, "formula_factor": 1}  # Mode 15
 }
 
-# WGM (Waveform Generation Mode) bit configurations for Timer2
-# (WGM22 in TCCR2B, WGM21/WGM20 in TCCR2A)
+# WGM (Waveform Generation Mode) bit konfigurationer for Timer2
+# (WGM22 i TCCR2B, WGM21/WGM20 i TCCR2A)
 WGM_BITS_T2 = {
     "Normal": {"WGM22": 0, "WGM21": 0, "WGM20": 0},
     "Phase Correct PWM": {"WGM22": 0, "WGM21": 0, "WGM20": 1}, # Mode 1

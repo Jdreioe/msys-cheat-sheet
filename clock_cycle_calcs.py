@@ -1,25 +1,16 @@
-# clock_cycle_calcs.py
-import tkinter as tk
-from tkinter import messagebox
-from tkinter import ttk
-from tkinter import scrolledtext
-import re # For parsing assembly lines
 
-class ClockCycleCalculator:
-    def __init__(self, notebook):
-        self.notebook = notebook
-        self.current_sequence_cycles = 0  # Initialize current_sequence_cycles here
-        self._setup_clock_cycle_tab()
-
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GLib
 import re
 
-class ClockCycleTab:
-    def __init__(self, notebook):
-        # Create a frame for the tab
-        self.tab = ttk.Frame(notebook)
-        notebook.add(self.tab, text="Clock Cycle Calculator")
+class ClockCycleTab(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_margin_top(10)
+        self.set_margin_bottom(10)
+        self.set_margin_start(10)
+        self.set_margin_end(10)
 
         self.instruction_cycles = {
             "ADD": 1, "ADC": 1, "SUB": 1, "SBC": 1, "AND": 1, "OR": 1, "EOR": 1,
@@ -40,17 +31,26 @@ class ClockCycleTab:
             "BRTS": {"taken": 2, "not_taken": 1}, "BRSH": {"taken": 2, "not_taken": 1},
             "BRLO": {"taken": 2, "not_taken": 1}, "NOP": 1
         }
-
         self.current_sequence_cycles = 0
         self.sequence_info = []
-        self.registers = {}  # Track register values, e.g., {'R16': 0, 'R17': 0}
+        self.registers = {}
 
-        # GUI Elements
-        self.multi_instr_label = tk.Label(self.tab, text="Indsæt Assembly Kode Her (inkl. labels og kommentarer):")
-        self.multi_instr_label.pack(pady=5)
-        self.multi_instr_text = scrolledtext.ScrolledText(self.tab, width=70, height=12, wrap=tk.WORD)
-        self.multi_instr_text.pack(pady=5)
-        self.multi_instr_text.insert(tk.END, """    CLR R16
+        # Multi-line input
+        multi_instr_label = Gtk.Label(label="Indsæt Assembly Kode Her (inkl. labels og kommentarer):")
+        self.append(multi_instr_label)
+
+        multi_instr_scroll = Gtk.ScrolledWindow()
+        multi_instr_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        multi_instr_scroll.set_vexpand(True)
+        self.multi_instr_text = Gtk.TextView()
+        self.multi_instr_text.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.multi_instr_text.set_monospace(True)
+        multi_instr_scroll.set_child(self.multi_instr_text)
+        self.append(multi_instr_scroll)
+
+        # Set default text
+        multi_buffer = self.multi_instr_text.get_buffer()
+        multi_buffer.set_text("""    CLR R16
     CLR R17
 IGEN: NOP
     DEC R16
@@ -58,56 +58,73 @@ IGEN: NOP
     INC R17
     BRNE IGEN""")
 
-        self.add_multi_button = tk.Button(self.tab, text="Analyser & Tilføj Indsat Kode til Sekvens", command=self.add_multiple_instructions)
-        self.add_multi_button.pack(pady=10)
+        add_multi_button = Gtk.Button(label="Analyser & Tilføj Indsat Kode til Sekvens")
+        add_multi_button.connect("clicked", self.on_add_multi_clicked)
+        self.append(add_multi_button)
 
-        self.separator = tk.Frame(self.tab, height=2, bd=1, relief=tk.SUNKEN)
-        self.separator.pack(fill=tk.X, padx=5, pady=5)
+        separator1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.append(separator1)
 
-        self.instr_label = tk.Label(self.tab, text="Tilføj Enkelt Instruktion:")
-        self.instr_label.pack(pady=5)
-        self.instr_entry = tk.Entry(self.tab, width=30)
-        self.instr_entry.pack(pady=5)
-        self.instr_entry.bind("<Return>", lambda event: self.add_instruction())
+        # Single instruction input
+        instr_label = Gtk.Label(label="Tilføj Enkelt Instruktion:")
+        self.append(instr_label)
 
-        self.reps_label = tk.Label(self.tab, text="Antal gentagelser (for loops, standard 1):")
-        self.reps_label.pack(pady=5)
-        self.reps_entry = tk.Entry(self.tab, width=10)
-        self.reps_entry.insert(0, "1")
-        self.reps_entry.pack(pady=5)
-        self.reps_entry.bind("<Return>", lambda event: self.add_instruction())
+        self.instr_entry = Gtk.Entry()
+        self.instr_entry.set_placeholder_text("e.g., ADD R16, R17")
+        self.instr_entry.connect("activate", self.on_instr_entry_activate)
+        self.append(self.instr_entry)
 
-        self.branch_var = tk.StringVar(self.tab)
-        self.branch_var.set("Normal")
-        self.branch_options = ["Normal", "Branch Taken", "Branch Not Taken"]
-        self.branch_menu_label = tk.Label(self.tab, text="Branch adfærd (kun for BR-instruktioner):")
-        self.branch_menu_label.pack(pady=5)
-        self.branch_menu = tk.OptionMenu(self.tab, self.branch_var, *self.branch_options)
-        self.branch_menu.pack(pady=5)
+        reps_label = Gtk.Label(label="Antal gentagelser (for loops, standard 1):")
+        self.append(reps_label)
 
-        self.add_button = tk.Button(self.tab, text="Tilføj Enkelt Instruktion til Sekvens", command=self.add_instruction)
-        self.add_button.pack(pady=10)
+        self.reps_entry = Gtk.Entry()
+        self.reps_entry.set_text("1")
+        self.reps_entry.set_max_width_chars(10)
+        self.reps_entry.connect("activate", self.on_instr_entry_activate)
+        self.append(self.reps_entry)
 
-        self.separator2 = tk.Frame(self.tab, height=2, bd=1, relief=tk.SUNKEN)
-        self.separator2.pack(fill=tk.X, padx=5, pady=5)
+        branch_label = Gtk.Label(label="Branch adfærd (kun for BR-instruktioner):")
+        self.append(branch_label)
 
-        self.sequence_display_label = tk.Label(self.tab, text="Instruktionssekvens:")
-        self.sequence_display_label.pack(pady=5)
-        self.sequence_text_widget = scrolledtext.ScrolledText(self.tab, width=70, height=10, state='disabled')
-        self.sequence_text_widget.pack(pady=5)
+        self.branch_combo = Gtk.ComboBoxText()
+        for option in ["Normal", "Branch Taken", "Branch Not Taken"]:
+            self.branch_combo.append_text(option)
+        self.branch_combo.set_active(0)  # Default to "Normal"
+        self.append(self.branch_combo)
 
-        self.total_cycles_label = tk.Label(self.tab, text=f"Total Clock Cycles: {self.current_sequence_cycles}")
-        self.total_cycles_label.config(font=("Arial", 14, "bold"))
-        self.total_cycles_label.pack(pady=10)
+        add_button = Gtk.Button(label="Tilføj Enkelt Instruktion til Sekvens")
+        add_button.connect("clicked", self.on_add_clicked)
+        self.append(add_button)
 
-        self.reset_button = tk.Button(self.tab, text="Nulstil Sekvens", command=self.reset_sequence)
-        self.reset_button.pack(pady=5)
+        separator2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.append(separator2)
 
-        self.help_button = tk.Button(self.tab, text="Instruktioner & Cycles (Hint)", command=self.show_help)
-        self.help_button.pack(pady=5)
+        # Sequence display
+        sequence_label = Gtk.Label(label="Instruktionssekvens:")
+        self.append(sequence_label)
+
+        sequence_scroll = Gtk.ScrolledWindow()
+        sequence_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sequence_scroll.set_vexpand(True)
+        self.sequence_text = Gtk.TextView()
+        self.sequence_text.set_editable(False)
+        self.sequence_text.set_monospace(True)
+        sequence_scroll.set_child(self.sequence_text)
+        self.append(sequence_scroll)
+
+        self.total_cycles_label = Gtk.Label(label=f"Total Clock Cycles: {self.current_sequence_cycles}")
+        self.total_cycles_label.set_markup(f'<span size="large" weight="bold">Total Clock Cycles: {self.current_sequence_cycles}</span>')
+        self.append(self.total_cycles_label)
+
+        reset_button = Gtk.Button(label="Nulstil Sekvens")
+        reset_button.connect("clicked", self.on_reset_clicked)
+        self.append(reset_button)
+
+        help_button = Gtk.Button(label="Instruktioner & Cycles (Hint)")
+        help_button.connect("clicked", self.on_help_clicked)
+        self.append(help_button)
 
     def _parse_line(self, line):
-        """Parses a single line of assembly code to extract instruction and label."""
         line = line.strip()
         if not line:
             return None, None, None
@@ -128,30 +145,27 @@ IGEN: NOP
         return label, instruction, operand
 
     def _simulate_register(self, instr, operand, reg_values):
-        """Simulate register updates for CLR, DEC, INC to estimate loop iterations."""
         if instr == "CLR" and operand:
             reg = operand.strip().upper()
             reg_values[reg] = 0
         elif instr == "DEC" and operand:
             reg = operand.strip().upper()
             if reg not in reg_values:
-                reg_values[reg] = 0  # Assume 0 if not initialized
-            reg_values[reg] = (reg_values[reg] - 1) & 0xFF  # 8-bit wraparound
+                reg_values[reg] = 0
+            reg_values[reg] = (reg_values[reg] - 1) & 0xFF
         elif instr == "INC" and operand:
             reg = operand.strip().upper()
             if reg not in reg_values:
                 reg_values[reg] = 0
-            reg_values[reg] = (reg_values[reg] + 1) & 0xFF  # 8-bit wraparound
+            reg_values[reg] = (reg_values[reg] + 1) & 0xFF
 
     def _estimate_loop_iterations(self, instr, operand, labels, line_num, processed_lines, current_reg_values):
-        """Estimate loop iterations based on register values and branch instruction."""
         if not operand or not instr.startswith("BR"):
             return 1, "Normal", "Normal"
         target_label = operand.split()[0].upper()
         if target_label not in labels or labels[target_label] >= line_num:
-            return 1, "Branch Not Taken", "Branch Not Taken"  # Forward jump or no loop
+            return 1, "Branch Not Taken", "Branch Not Taken"
 
-        # Backward jump: potential loop
         if instr == "BRNE" and operand:
             loop_start = labels[target_label]
             reg = None
@@ -169,45 +183,60 @@ IGEN: NOP
                 return iterations, "Branch Taken", "Branch Not Taken"
         return 256, "Branch Taken", "Branch Not Taken"
 
+    def on_add_clicked(self, widget):
+        self.add_instruction()
+
+    def on_add_multi_clicked(self, widget):
+        self.add_multiple_instructions()
+
+    def on_instr_entry_activate(self, widget):
+        self.add_instruction()
+
+    def on_reset_clicked(self, widget):
+        self.reset_sequence()
+
+    def on_help_clicked(self, widget):
+        self.show_help()
+
     def add_instruction(self):
-        instr_raw = self.instr_entry.get().strip()
-        reps_str = self.reps_entry.get().strip()
-        branch_behavior = self.branch_var.get()
+        instr_raw = self.instr_entry.get_text().strip()
+        reps_str = self.reps_entry.get_text().strip()
+        branch_behavior = self.branch_combo.get_active_text()
 
         if not instr_raw:
-            messagebox.showwarning("Input Fejl", "Indtast venligst en instruktion.")
+            self.show_warning("Input Fejl", "Indtast venligst en instruktion.")
             return
         try:
             reps = int(reps_str)
             if reps <= 0:
-                messagebox.showwarning("Input Fejl", "Antal gentagelser skal være et positivt heltal.")
+                self.show_warning("Input Fejl", "Antal gentagelser skal være et positivt heltal.")
                 return
         except ValueError:
-            messagebox.showwarning("Input Fejl", "Antal gentagelser skal være et gyldigt heltal.")
+            self.show_warning("Input Fejl", "Antal gentagelser skal være et gyldigt heltal.")
             return
 
         _label, instr_mnemonic, _operand = self._parse_line(instr_raw)
         if not instr_mnemonic:
-            messagebox.showwarning("Input Fejl", f"Kunne ikke genkende instruktion fra '{instr_raw}'.")
+            self.show_warning("Input Fejl", f"Kunde ikke genkende instruktion fra '{instr_raw}'.")
             return
         self._process_single_instruction_and_add_to_sequence(instr_mnemonic, reps, branch_behavior)
-        self.instr_entry.delete(0, tk.END)
-        self.reps_entry.delete(0, tk.END)
-        self.reps_entry.insert(0, "1")
-        self.branch_var.set("Normal")
+        self.instr_entry.set_text("")
+        self.reps_entry.set_text("1")
+        self.branch_combo.set_active(0)
 
     def add_multiple_instructions(self):
-        pasted_code = self.multi_instr_text.get(1.0, tk.END).strip()
+        multi_buffer = self.multi_instr_text.get_buffer()
+        start_iter, end_iter = multi_buffer.get_bounds()
+        pasted_code = multi_buffer.get_text(start_iter, end_iter, False).strip()
         if not pasted_code:
-            messagebox.showwarning("Input Fejl", "Indsæt venligst assembly kode i tekstboksen.")
+            self.show_warning("Input Fejl", "Indsæt venligst assembly kode i tekstboksen.")
             return
 
         lines = pasted_code.split('\n')
-        self.registers = {}  # Reset registers for new simulation
+        self.registers = {}
         processed_lines = []
         labels = {}
 
-        # First pass: parse lines, identify labels
         for i, line_text in enumerate(lines):
             label, instr_mnemonic, operand = self._parse_line(line_text)
             if label:
@@ -245,12 +274,11 @@ IGEN: NOP
         self._process_next_pasted_line()
 
     def _process_next_pasted_line(self):
-        reg_values = self.registers.copy()  # Track register state for simulation
+        reg_values = self.registers.copy()
         outer_loop_detected = False
         outer_iterations = 1
         outer_loop_line = None
 
-        # First pass to detect outer loop and estimate its iterations
         for i in range(len(self.temp_processed_lines)):
             line_data = self.temp_processed_lines[i]
             instr = line_data['instr']
@@ -287,24 +315,23 @@ IGEN: NOP
                 )
                 if iterations > 1 and line_num == outer_loop_line and outer_loop_detected:
                     self._handle_outer_loop(line_num, outer_iterations, loop_behavior, final_behavior)
-                    self.current_processing_index = len(self.temp_processed_lines)  # Skip to end after outer loop
+                    self.current_processing_index = len(self.temp_processed_lines)
                     break
                 elif iterations > 1:
                     self._handle_loop_automatically(line_num, iterations, loop_behavior, final_behavior)
                 else:
-                    self._process_single_instruction_and_add_to_sequence(instr, 1, loop_behavior, display_prefix=f"(L{line_num}) ")
+                    self._process_single_instruction_and_add_to_sequence(instr, 1, loop_behavior, f"(L{line_num}) ")
             elif instr:
-                self._process_single_instruction_and_add_to_sequence(instr, 1, "Normal", display_prefix=f"(L{line_num}) ")
+                self._process_single_instruction_and_add_to_sequence(instr, 1, "Normal", f"(L{line_num}) ")
             self._simulate_register(instr, operand, self.registers)
             self.current_processing_index += 1
 
         self._finalise_pasted_code_processing()
 
     def _handle_loop_automatically(self, line_num, iterations, loop_behavior, final_behavior):
-        """Process an inner loop."""
         loop_branch_data = next((item for item in self.temp_processed_lines if item['line_num'] == line_num and item['instr']), None)
         if not loop_branch_data:
-            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", display_prefix=f"(L{line_num}) ")
+            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", f"(L{line_num}) ")
             return
 
         loop_target_label = loop_branch_data['operand'].split()[0].upper()
@@ -315,8 +342,8 @@ IGEN: NOP
                 loop_instructions_data.append(self.temp_processed_lines[i])
 
         if not loop_instructions_data:
-            messagebox.showwarning("Loop Fejl", f"Ingen instruktioner fundet i loopet fra {loop_target_label} til linje {line_num}. Behandler branch som enkelt.")
-            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", display_prefix=f"(L{line_num}) ")
+            self.show_warning("Loop Fejl", f"Ingen instruktioner fundet i loopet fra {loop_target_label} til linje {line_num}. Behandler branch som enkelt.")
+            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", f"(L{line_num}) ")
             return
 
         cycles_per_loop_iteration = 0
@@ -324,7 +351,7 @@ IGEN: NOP
             instr_mnemonic = instr_data['instr']
             instr_info = self.instruction_cycles.get(instr_mnemonic)
             if instr_info is None:
-                messagebox.showwarning("Ukendt Instruktion", f"Ukendt instruktion '{instr_mnemonic}' i loop. Fortsætter.")
+                self.show_warning("Ukendt Instruktion", f"Ukendt instruktion '{instr_mnemonic}' i loop. Fortsætter.")
                 continue
             if instr_data == loop_branch_data:
                 key = "taken" if loop_behavior == "Branch Taken" else "not_taken"
@@ -362,10 +389,9 @@ IGEN: NOP
         self._update_sequence_display()
 
     def _handle_outer_loop(self, line_num, outer_iterations, loop_behavior, final_behavior):
-        """Process the outer loop, including nested inner loops."""
         loop_branch_data = next((item for item in self.temp_processed_lines if item['line_num'] == line_num and item['instr']), None)
         if not loop_branch_data:
-            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", display_prefix=f"(L{line_num}) ")
+            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", f"(L{line_num}) ")
             return
 
         loop_target_label = loop_branch_data['operand'].split()[0].upper()
@@ -376,11 +402,10 @@ IGEN: NOP
                 loop_instructions_data.append(self.temp_processed_lines[i])
 
         if not loop_instructions_data:
-            messagebox.showwarning("Loop Fejl", f"Ingen instruktioner fundet i loopet fra {loop_target_label} til linje {line_num}. Behandler branch som enkelt.")
-            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", display_prefix=f"(L{line_num}) ")
+            self.show_warning("Loop Fejl", f"Ingen instruktioner fundet i loopet fra {loop_target_label} til linje {line_num}. Behandler branch som enkelt.")
+            self._process_single_instruction_and_add_to_sequence(loop_branch_data['instr'], 1, "Normal", f"(L{line_num}) ")
             return
 
-        # Calculate cycles for the inner loop (e.g., DEC R16, BRNE IGEN)
         inner_loop_cycles = 0
         inner_iterations = 1
         reg_values = self.registers.copy()
@@ -414,13 +439,12 @@ IGEN: NOP
                             inner_loop_cycles += instr_info * inner_iterations
             self._simulate_register(instr, operand, reg_values)
 
-        # Calculate cycles for the outer loop iteration (including inner loop)
         cycles_per_outer_iteration = inner_loop_cycles
         for instr_data in loop_instructions_data:
             instr_mnemonic = instr_data['instr']
             instr_info = self.instruction_cycles.get(instr_mnemonic)
             if instr_info is None:
-                messagebox.showwarning("Ukendt Instruktion", f"Ukendt instruktion '{instr_mnemonic}' i loop. Fortsætter.")
+                self.show_warning("Ukendt Instruktion", f"Ukendt instruktion '{instr_mnemonic}' i loop. Fortsætter.")
                 continue
             if instr_data == loop_branch_data:
                 key = "taken" if loop_behavior == "Branch Taken" else "not_taken"
@@ -457,11 +481,10 @@ IGEN: NOP
         self._update_sequence_display()
 
     def _finalise_pasted_code_processing(self):
-        messagebox.showinfo("Klar", f"Indsat kode er blevet behandlet. Total Clock Cycles opdateret.")
-        self.multi_instr_text.delete(1.0, tk.END)
+        self.show_info("Klar", "Indsat kode er blevet behandlet. Total Clock Cycles opdateret.")
+        self.multi_instr_text.get_buffer().set_text("")
 
     def _process_single_instruction_and_add_to_sequence(self, instr_mnemonic, reps, branch_behavior, display_prefix=""):
-        """Helper method to process a single instruction's cycles and add to sequence."""
         cycles_per_instr = 0
         instr_name_for_display = instr_mnemonic
 
@@ -475,12 +498,12 @@ IGEN: NOP
                     cycles_per_instr = instr_info["not_taken"]
                     instr_name_for_display += " (Branch ikke taget)"
                 else:
-                    messagebox.showwarning("Input Fejl", f"Vælg 'Branch Taken' eller 'Branch Not Taken' for {instr_mnemonic}.")
+                    self.show_warning("Input Fejl", f"Vælg 'Branch Taken' eller 'Branch Not Taken' for {instr_mnemonic}.")
                     return
             else:
                 cycles_per_instr = instr_info
         else:
-            messagebox.showwarning("Ukendt Instruktion", f"Instruktion '{instr_mnemonic}' er ikke kendt eller understøttet i denne beregner.")
+            self.show_warning("Ukendt Instruktion", f"Instruktion '{instr_mnemonic}' er ikke kendt eller understøttet i denne beregner.")
             return
 
         total_cycles_for_this_entry = cycles_per_instr * reps
@@ -495,7 +518,6 @@ IGEN: NOP
         self._update_sequence_display()
 
     def _add_to_sequence_display(self, display_text, reps, cycles, is_label=False):
-        """Adds a pre-formatted string to the sequence display."""
         item = {
             'instr': 'RAW_TEXT',
             'reps': reps,
@@ -506,20 +528,16 @@ IGEN: NOP
         self._update_sequence_display()
 
     def _update_sequence_display(self):
-        self.sequence_text_widget.config(state='normal')
-        self.sequence_text_widget.delete(1.0, tk.END)
-        display_content = "\n".join([item['display_text'] for item in self.sequence_info])
-        self.sequence_text_widget.insert(tk.END, display_content)
-        self.sequence_text_widget.see(tk.END)
-        self.sequence_text_widget.config(state='disabled')
-        self.total_cycles_label.config(text=f"Total Clock Cycles: {self.current_sequence_cycles}")
+        sequence_buffer = self.sequence_text.get_buffer()
+        sequence_buffer.set_text("\n".join([item['display_text'] for item in self.sequence_info]))
+        self.total_cycles_label.set_markup(f'<span size="large" weight="bold">Total Clock Cycles: {self.current_sequence_cycles}</span>')
 
     def reset_sequence(self):
         self.current_sequence_cycles = 0
         self.sequence_info = []
         self.registers = {}
         self._update_sequence_display()
-        messagebox.showinfo("Nulstillet", "Sekvensen er nulstillet.")
+        self.show_info("Nulstillet", "Sekvensen er nulstillet.")
 
     def show_help(self):
         help_text = "Dette er en cheat-sheet beregner for typiske AVR Assembly clock cycles.\n\n"
@@ -540,24 +558,26 @@ IGEN: NOP
                 help_text += f"- {instr}: {cycles_info['taken']} (taken) / {cycles_info['not_taken']} (not taken)\n"
             else:
                 help_text += f"- {instr}: {cycles_info} cycle(s)\n"
-        messagebox.showinfo("Instruktioner & Cycles", help_text)
+        self.show_info("Instruktioner & Cycles", help_text)
 
-# Example usage with a Tkinter Notebook
-if __name__ == "__main__":
-    root = tk.Tk()
-    root.title("Multi-Tab Application")
-    root.geometry("800x900")
+    def show_warning(self, title, message):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.get_root(),
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+            secondary_text=message
+        )
+        dialog.connect("response", lambda d, _: d.destroy())
+        dialog.present()
 
-    # Create a notebook (tab container)
-    notebook = ttk.Notebook(root)
-    notebook.pack(pady=10, expand=True, fill='both')
-
-    # Add the clock cycle calculator tab
-    clock_cycle_tab = ClockCycleTab(notebook)
-
-    # Add another sample tab for demonstration
-    sample_tab = ttk.Frame(notebook)
-    notebook.add(sample_tab, text="Sample Tab")
-    tk.Label(sample_tab, text="This is a sample tab for demonstration.").pack(pady=20)
-
-    root.mainloop()
+    def show_info(self, title, message):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.get_root(),
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+            secondary_text=message
+        )
+        dialog.connect("response", lambda d, _: d.destroy())
+        dialog.present()

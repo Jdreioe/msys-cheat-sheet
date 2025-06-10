@@ -1,4 +1,3 @@
-# prescaler_top_calc.py
 import tkinter as tk
 from tkinter import ttk
 from constants import CPU_FREQ_DEFAULT, PRESCALERS_T0_T1_T2, WGM_BITS_T0, WGM_BITS_T1, WGM_BITS_T2

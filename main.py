@@ -1,4 +1,3 @@
-# main_app.py
 import tkinter as tk
 from tkinter import ttk
 from constants import CPU_FREQ_DEFAULT
@@ -14,8 +13,9 @@ from reverse_calc_tab import ReverseCalculatorTab
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("AVR Calculator Suite")
-        self.root.geometry("800x1050") # Adjust size as needed
+        self.root.title("MSYS Cheat Sheet")
+        self.root.resizable(True, True)
+        self.root.geometry("1050x1050")
 
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(pady=10, expand=True, fill="both")
