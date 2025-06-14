@@ -5,7 +5,6 @@ import math # For rounding
 
 # Assuming constants.py exists and CPU_FREQ_DEFAULT is defined there
 # For this example, I'll define a dummy value:
-CPU_FREQ_DEFAULT = 16_000_000 # 16 MHz
 
 # Make UartCalculator inherit from Gtk.Box to be a self-contained widget
 class UartCalculator(Gtk.Box):
@@ -167,7 +166,7 @@ if __name__ == "__main__":
             self.set_child(self.notebook) # Set the notebook as the main content of the window
 
             # Instantiate UartCalculator and append it to the notebook
-            uart_calc_tab = UartCalculator()
+            uart_calc_tab = UartCalculator(cpu_freq_entry=1_000_000)  # Example CPU frequency in Hz
             self.notebook.append_page(uart_calc_tab, Gtk.Label(label="UART"))
 
     class App(Gtk.Application):

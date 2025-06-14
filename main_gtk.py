@@ -12,8 +12,7 @@ from forward_timer_calcs import ForwardTimerCalculations
 from reverse_calc_tab import ReverseCalculatorTab
 from mega2560_stack_tab import Mega2560StackTab
 from constants import CPU_FREQ_DEFAULT
-from info_tab import InfoTab
-from number_systems_tab import NumberSystemsTab
+from info_tab_main import InfoTab
 from uart_calcs import UartCalculator as UartCalculationsTab
 class MainWindow(Gtk.Application):
     def __init__(self):
@@ -70,8 +69,8 @@ class MainWindow(Gtk.Application):
         if not self.window:
             self.window = Gtk.ApplicationWindow(application=self)
             self.window.set_title("AVR Timer Beregner (GTK4)")
-            self.window.set_default_size(800, 700)
-            self.window.set_size_request(700, 600)
+            self.window.set_default_size(400, 350) # Was 800, 700
+            self.window.set_size_request(350, 300) # Was 700, 600
 
             header_bar = Gtk.HeaderBar()
             self.window.set_titlebar(header_bar)
@@ -145,13 +144,12 @@ class MainWindow(Gtk.Application):
 
             # Add Info Tab
             self.info_tab = InfoTab()
-            self.main_notebook.append_page(self.info_tab, Gtk.Label(label="Informationer"))
+            self.main_notebook.append_page(self.info_tab, Gtk.Label(label="Info-tab"))
 
-            self.number_systems_tab = NumberSystemsTab()
-            self.main_notebook.append_page(self.number_systems_tab, Gtk.Label(label="Tal Systemer"))
+
 
             self.uart_calculations_tab = UartCalculationsTab(cpu_freq_entry=self.cpu_freq_entry)
-            self.main_notebook.append_page(self.uart_calculations_tab, Gtk.Label(label="UART Beregninger"))
+            self.main_notebook.append_page(self.uart_calculations_tab, Gtk.Label(label="UART"))
             # Set the default tab to Forward Calculations
             self.main_notebook.set_show_tabs(True)
             self.main_notebook.set_show_border(True)

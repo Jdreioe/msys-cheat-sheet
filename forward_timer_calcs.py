@@ -31,9 +31,7 @@ class ForwardTimerCalculations(Gtk.Box):
         # Notebook for individual timers
         self.notebook = Gtk.Notebook()
         self.append(self.notebook)
-        self.notebook.set_hexpand(True)
-        self.notebook.set_vexpand(True)
-
+ 
         # Timer0 Tab
         self.timer0_calculator = Timer0Calculator(self, self.cpu_freq_entry)
         self.notebook.append_page(self.timer0_calculator, Gtk.Label(label="Timer0"))
