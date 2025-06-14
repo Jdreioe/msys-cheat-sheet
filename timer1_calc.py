@@ -1,117 +1,164 @@
-import tkinter as tk
-from tkinter import ttk
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, Pango
+
+# Ensure these are adapted for GTK4 or are simple Python constants/functions
 from constants import CPU_FREQ_DEFAULT, PRESCALERS_T0_T1_T2, WGM_BITS_T1
-from utils import parse_hex_bin_int, show_error, show_warning
+from utils import parse_hex_bin_int, show_error, show_warning # show_error/warning need GTK4 adaptation
 
-class Timer1Calculator:
-    def __init__(self, master_frame, cpu_freq_var):
-        self.master_frame = master_frame
-        self.cpu_freq_entry_var = cpu_freq_var # Use shared CPU freq var
+class Timer1Calculator(Gtk.Box):
+    """
+    GTK4 Calculator for Timer1 settings.
+    """
+    def __init__(self, master_box, cpu_freq_entry): # master_box is the parent Gtk.Box/Frame
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_margin_start(10)
+        self.set_margin_end(10)
+        self.set_margin_top(10)
+        self.set_margin_bottom(10)
 
-        # Timer1 StringVars
-        self.timer1_mode_selection = tk.StringVar(value="Normal")
-        self.timer1_prescaler_var = tk.StringVar(value="1")
-        self.timer1_delay_entry = tk.StringVar()
-        self.timer1_freq_entry = tk.StringVar()
-        self.timer1_duty_entry = tk.StringVar()
-        self.timer1_actual_freq_label = tk.StringVar()
-        self.timer1_error_label = tk.StringVar()
-        self.timer1_tccr1a_label = tk.StringVar()
-        self.timer1_tccr1b_label = tk.StringVar()
-        self.timer1_tccr1c_label = tk.StringVar()
-        self.timer1_ocr1a_label = tk.StringVar()
-        self.timer1_icr1_label = tk.StringVar()
-        self.timer1_tcnt1_label = tk.StringVar()
-        self.timer1_actual_duty_label = tk.StringVar()
+        self.master_box = master_box
+        self.cpu_freq_entry = cpu_freq_entry # Store the Gtk.Entry widget for CPU frequency
 
         self._create_widgets()
 
     def _create_widgets(self):
-        frame = self.master_frame
+        # Use Gtk.Grid for precise layout, similar to Tkinter's grid
+        grid = Gtk.Grid()
+        grid.set_row_spacing(5)
+        grid.set_column_spacing(5)
+        self.append(grid) # Add the grid to the main vertical box
+
+        # --- Mode Selection ---
+        grid.attach(Gtk.Label(label="Timer Mode:"), 0, 1, 1, 1) # col, row, width, height
+        self.timer1_mode_combobox = Gtk.ComboBoxText()
+        for mode_name in WGM_BITS_T1.keys():
+            self.timer1_mode_combobox.append_text(mode_name)
+        self.timer1_mode_combobox.set_active_id("Normal") # Set initial value
+        self.timer1_mode_combobox.connect("changed", self._on_timer1_mode_change)
+        grid.attach(self.timer1_mode_combobox, 1, 1, 1, 1)
+        self.timer1_mode_combobox.set_hexpand(True) # Expand horizontally
+
+        # --- Prescaler Selection ---
+        grid.attach(Gtk.Label(label="Prescaler:"), 0, 2, 1, 1)
+        self.timer1_prescaler_combobox = Gtk.ComboBoxText()
+        # Exclude "0" for stopped prescaler
+        prescaler_values = [str(p) for p in PRESCALERS_T0_T1_T2["T0_T1"].keys() if p != "0"]
+        for p_val in prescaler_values:
+            self.timer1_prescaler_combobox.append_text(p_val)
+        self.timer1_prescaler_combobox.set_active_id("1") # Set initial value
+        grid.attach(self.timer1_prescaler_combobox, 1, 2, 1, 1)
+        self.timer1_prescaler_combobox.set_hexpand(True)
+
+        # --- Input fields (toggle visibility based on mode) ---
+        grid.attach(Gtk.Label(label="Ønsket Forsinkelse (ms):"), 0, 3, 1, 1)
+        self.timer1_delay_entry_widget = Gtk.Entry()
+        grid.attach(self.timer1_delay_entry_widget, 1, 3, 1, 1)
+        self.timer1_delay_entry_widget.set_hexpand(True)
+
+        grid.attach(Gtk.Label(label="Ønsket Frekvens (Hz):"), 0, 4, 1, 1)
+        self.timer1_freq_entry_widget = Gtk.Entry()
+        grid.attach(self.timer1_freq_entry_widget, 1, 4, 1, 1)
+        self.timer1_freq_entry_widget.set_hexpand(True)
+
+        grid.attach(Gtk.Label(label="Ønsket Duty Cycle (%):"), 0, 5, 1, 1)
+        self.timer1_duty_entry_widget = Gtk.Entry()
+        grid.attach(self.timer1_duty_entry_widget, 1, 5, 1, 1)
+        self.timer1_duty_entry_widget.set_hexpand(True)
+
+        # --- Calculate Button ---
+        calculate_button = Gtk.Button(label="Beregn Timer1 Indstillinger")
+        calculate_button.connect("clicked", self.calculate_timer1)
+        grid.attach(calculate_button, 0, 6, 2, 1) # Span 2 columns
+        calculate_button.set_margin_top(10)
+        calculate_button.set_margin_bottom(10)
+
+        # --- Results Display ---
+        results_frame = Gtk.Frame(label="Beregnet Resultat")
+        self.append(results_frame) # Add frame to the main vertical box
+        results_frame.set_hexpand(True)
         
-        # Mode Selection
-        ttk.Label(frame, text="Timer Mode:").grid(row=1, column=0, padx=5, pady=2, sticky="w")
-        self.timer1_mode_combobox = ttk.Combobox(frame, textvariable=self.timer1_mode_selection, state="readonly")
-        self.timer1_mode_combobox['values'] = list(WGM_BITS_T1.keys())
-        self.timer1_mode_combobox.grid(row=1, column=1, padx=5, pady=2, sticky="ew")
-        self.timer1_mode_combobox.bind("<<ComboboxSelected>>", self._on_timer1_mode_change)
+        results_grid = Gtk.Grid()
+        results_grid.set_row_spacing(5)
+        results_grid.set_column_spacing(5)
+        results_grid.set_margin_start(5)
+        results_grid.set_margin_end(5)
+        results_grid.set_margin_top(5)
+        results_grid.set_margin_bottom(5)
+        results_frame.set_child(results_grid)
 
-        # Prescaler Selection
-        ttk.Label(frame, text="Prescaler:").grid(row=2, column=0, padx=5, pady=2, sticky="w")
-        self.timer1_prescaler_combobox = ttk.Combobox(frame, textvariable=self.timer1_prescaler_var, state="readonly")
-        self.timer1_prescaler_combobox['values'] = [p for p in PRESCALERS_T0_T1_T2["T0_T1"].keys() if p != "0"]
-        self.timer1_prescaler_combobox.grid(row=2, column=1, padx=5, pady=2, sticky="ew")
+        # Labels for displaying results
+        self.timer1_actual_freq_label = Gtk.Label(label="N/A", xalign=0) # xalign for left align
+        self.timer1_error_label = Gtk.Label(label="N/A", xalign=0)
+        self.timer1_tccr1a_label = Gtk.Label(label="N/A", xalign=0)
+        self.timer1_tccr1b_label = Gtk.Label(label="N/A", xalign=0)
+        self.timer1_tccr1c_label = Gtk.Label(label="N/A", xalign=0) # New for Timer1
+        self.timer1_ocr1a_label = Gtk.Label(label="N/A", xalign=0)
+        self.timer1_icr1_label = Gtk.Label(label="N/A", xalign=0) # New for Timer1
+        self.timer1_tcnt1_label = Gtk.Label(label="N/A", xalign=0)
+        self.timer1_actual_duty_label = Gtk.Label(label="N/A", xalign=0)
 
-        # Input fields (toggle visibility based on mode)
-        ttk.Label(frame, text="Ønsket Forsinkelse (ms):").grid(row=3, column=0, padx=5, pady=2, sticky="w")
-        self.timer1_delay_entry_widget = ttk.Entry(frame, textvariable=self.timer1_delay_entry)
-        self.timer1_delay_entry_widget.grid(row=3, column=1, padx=5, pady=2, sticky="ew")
-
-        ttk.Label(frame, text="Ønsket Frekvens (Hz):").grid(row=4, column=0, padx=5, pady=2, sticky="w")
-        self.timer1_freq_entry_widget = ttk.Entry(frame, textvariable=self.timer1_freq_entry)
-        self.timer1_freq_entry_widget.grid(row=4, column=1, padx=5, pady=2, sticky="ew")
-
-        ttk.Label(frame, text="Ønsket Duty Cycle (%):").grid(row=5, column=0, padx=5, pady=2, sticky="w")
-        self.timer1_duty_entry_widget = ttk.Entry(frame, textvariable=self.timer1_duty_entry)
-        self.timer1_duty_entry_widget.grid(row=5, column=1, padx=5, pady=2, sticky="ew")
-
-        # Calculate Button
-        ttk.Button(frame, text="Beregn Timer1 Indstillinger", command=self.calculate_timer1).grid(row=6, column=0, columnspan=2, pady=10)
-
-        # Results Display
-        results_frame = ttk.LabelFrame(frame, text="Beregnet Resultat")
-        results_frame.grid(row=7, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
-
-        ttk.Label(results_frame, text="Faktisk Frekvens/Tid:").grid(row=0, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_actual_freq_label, font=("TkDefaultFont", 10, "bold")).grid(row=0, column=1, padx=5, pady=2, sticky="w")
+        # Apply bold font to actual_freq_label (Pango markup for GTK labels)
+        self.timer1_actual_freq_label.set_markup("<span weight='bold'>N/A</span>")
         
-        ttk.Label(results_frame, text="Fejl (%):").grid(row=1, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_error_label).grid(row=1, column=1, padx=5, pady=2, sticky="w")
-
-        ttk.Label(results_frame, text="TCCR1A (bin):").grid(row=2, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_tccr1a_label).grid(row=2, column=1, padx=5, pady=2, sticky="w")
-
-        ttk.Label(results_frame, text="TCCR1B (bin):").grid(row=3, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_tccr1b_label).grid(row=3, column=1, padx=5, pady=2, sticky="w")
-
-        ttk.Label(results_frame, text="TCCR1C (bin):").grid(row=4, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_tccr1c_label).grid(row=4, column=1, padx=5, pady=2, sticky="w")
+        results_grid.attach(Gtk.Label(label="Faktisk Frekvens/Tid:", xalign=0), 0, 0, 1, 1)
+        results_grid.attach(self.timer1_actual_freq_label, 1, 0, 1, 1)
         
-        ttk.Label(results_frame, text="OCR1A (dec):").grid(row=5, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_ocr1a_label).grid(row=5, column=1, padx=5, pady=2, sticky="w")
+        results_grid.attach(Gtk.Label(label="Fejl (%):", xalign=0), 0, 1, 1, 1)
+        results_grid.attach(self.timer1_error_label, 1, 1, 1, 1)
 
-        ttk.Label(results_frame, text="ICR1 (dec):").grid(row=6, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_icr1_label).grid(row=6, column=1, padx=5, pady=2, sticky="w")
+        results_grid.attach(Gtk.Label(label="TCCR1A (bin):", xalign=0), 0, 2, 1, 1)
+        results_grid.attach(self.timer1_tccr1a_label, 1, 2, 1, 1)
+
+        results_grid.attach(Gtk.Label(label="TCCR1B (bin):", xalign=0), 0, 3, 1, 1)
+        results_grid.attach(self.timer1_tccr1b_label, 1, 3, 1, 1)
+
+        results_grid.attach(Gtk.Label(label="TCCR1C (bin):", xalign=0), 0, 4, 1, 1) # New row for TCCR1C
+        results_grid.attach(self.timer1_tccr1c_label, 1, 4, 1, 1)
         
-        ttk.Label(results_frame, text="TCNT1 Start (dec):").grid(row=7, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_tcnt1_label).grid(row=7, column=1, padx=5, pady=2, sticky="w")
+        results_grid.attach(Gtk.Label(label="OCR1A (dec):", xalign=0), 0, 5, 1, 1)
+        results_grid.attach(self.timer1_ocr1a_label, 1, 5, 1, 1)
 
-        ttk.Label(results_frame, text="Faktisk Duty Cycle (%):").grid(row=8, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(results_frame, textvariable=self.timer1_actual_duty_label).grid(row=8, column=1, padx=5, pady=2, sticky="w")
+        results_grid.attach(Gtk.Label(label="ICR1 (dec):", xalign=0), 0, 6, 1, 1) # New row for ICR1
+        results_grid.attach(self.timer1_icr1_label, 1, 6, 1, 1)
         
-        self._on_timer1_mode_change() # Set initial visibility
+        results_grid.attach(Gtk.Label(label="TCNT1 Start (dec):", xalign=0), 0, 7, 1, 1)
+        results_grid.attach(self.timer1_tcnt1_label, 1, 7, 1, 1)
 
-    def _on_timer1_mode_change(self, event=None):
-        selected_mode = self.timer1_mode_selection.get()
+        results_grid.attach(Gtk.Label(label="Faktisk Duty Cycle (%):", xalign=0), 0, 8, 1, 1)
+        results_grid.attach(self.timer1_actual_duty_label, 1, 8, 1, 1)
+        
+        # Call initial visibility setup
+        self._on_timer1_mode_change(self.timer1_mode_combobox)
+
+    def _on_timer1_mode_change(self, combobox):
+        selected_mode = combobox.get_active_text()
+        
+        # FIX: Handle potential None if combobox isn't fully initialized or active_id not set
+        if selected_mode is None:
+            selected_mode = "Normal"
+
         if selected_mode == "Normal":
-            self.timer1_delay_entry_widget.grid()
-            self.timer1_freq_entry_widget.grid_remove()
-            self.timer1_duty_entry_widget.grid_remove()
+            self.timer1_delay_entry_widget.set_visible(True)
+            self.timer1_freq_entry_widget.set_visible(False)
+            self.timer1_duty_entry_widget.set_visible(False)
         elif "CTC" in selected_mode:
-            self.timer1_delay_entry_widget.grid_remove()
-            self.timer1_freq_entry_widget.grid()
-            self.timer1_duty_entry_widget.grid_remove()
+            self.timer1_delay_entry_widget.set_visible(False)
+            self.timer1_freq_entry_widget.set_visible(True)
+            self.timer1_duty_entry_widget.set_visible(False)
         elif "PWM" in selected_mode:
-            self.timer1_delay_entry_widget.grid_remove()
-            self.timer1_freq_entry_widget.grid()
-            self.timer1_duty_entry_widget.grid()
+            self.timer1_delay_entry_widget.set_visible(False)
+            self.timer1_freq_entry_widget.set_visible(True)
+            self.timer1_duty_entry_widget.set_visible(True)
 
-    def calculate_timer1(self):
+    def calculate_timer1(self, button): # GTK passes the button object to the callback
         try:
-            cpu_freq_mhz = float(self.cpu_freq_entry_var.get())
+            # Get CPU frequency from the shared Gtk.Entry widget
+            cpu_freq_mhz = float(self.cpu_freq_entry.get_text())
             cpu_freq_hz = cpu_freq_mhz * 1_000_000
-            selected_mode = self.timer1_mode_selection.get()
-            selected_prescaler_str = self.timer1_prescaler_var.get()
+            
+            selected_mode = self.timer1_mode_combobox.get_active_text()
+            selected_prescaler_str = self.timer1_prescaler_combobox.get_active_text()
             prescaler_int = int(selected_prescaler_str)
 
             # Clear previous results
@@ -119,7 +166,7 @@ class Timer1Calculator:
 
             tccr1a = 0
             tccr1b = 0
-            tccr1c = 0 # For OC1A/B/C force output compare
+            tccr1c = 0 # For OC1A/B/C force output compare, usually not directly set for calculation
             ocr1a = -1
             icr1 = -1
             tcnt1 = -1
@@ -140,7 +187,8 @@ class Timer1Calculator:
             max_top_val = 65535 # 16-bit timer default max
 
             if selected_mode == "Normal":
-                desired_delay_ms = float(self.timer1_delay_entry.get())
+                # Get delay from the Gtk.Entry widget
+                desired_delay_ms = float(self.timer1_delay_entry_widget.get_text())
                 desired_delay_s = desired_delay_ms / 1000.0
                 
                 required_count_float = desired_delay_s * cpu_freq_hz / prescaler_int
@@ -150,7 +198,7 @@ class Timer1Calculator:
                     return
 
                 tcnt1_float = (max_top_val + 1) - required_count_float
-                if tcnt1_float < 0: tcnt1_float = 0
+                if tcnt1_float < 0: tcnt1_float = 0 # Cannot be negative
                 tcnt1 = round(tcnt1_float)
 
                 actual_delay_s = prescaler_int * ((max_top_val + 1) - tcnt1) / cpu_freq_hz
@@ -158,7 +206,8 @@ class Timer1Calculator:
                 calc_error = abs(actual_delay_s - desired_delay_s) / desired_delay_s * 100
 
             elif "CTC" in selected_mode:
-                desired_freq = float(self.timer1_freq_entry.get())
+                # Get frequency from the Gtk.Entry widget
+                desired_freq = float(self.timer1_freq_entry_widget.get_text())
                 
                 denominator = 2 * prescaler_int * desired_freq
                 if denominator == 0:
@@ -183,8 +232,8 @@ class Timer1Calculator:
                 calc_error = abs(actual_freq - desired_freq) / desired_freq * 100
 
             elif "PWM" in selected_mode:
-                desired_freq = float(self.timer1_freq_entry.get())
-                desired_duty_cycle_perc = float(self.timer1_duty_entry.get())
+                desired_freq = float(self.timer1_freq_entry_widget.get_text())
+                desired_duty_cycle_perc = float(self.timer1_duty_entry_widget.get_text())
                 if not (0 <= desired_duty_cycle_perc <= 100):
                     show_warning("Ugyldig Duty Cycle", "Duty Cycle skal være mellem 0 og 100%.")
                     return
@@ -227,7 +276,7 @@ class Timer1Calculator:
 
                     top_float = (cpu_freq_hz / denominator) - 1
                     if top_float < 0 or top_float > max_top_val:
-                        show_warning("Ugyldig Frekvens", "Den ønskede frekvens kan ikke opnås (TOP værdi uden for rækkevidde).")
+                        show_warning("Ugyldig Frekvens", "TOP værdi uden for rækkevidde.")
                         return
 
                     top_value = round(top_float)
@@ -241,7 +290,7 @@ class Timer1Calculator:
 
                     ocr1a_duty_float = top_value * desired_duty_cycle
                     if ocr1a_duty_float < 0 or ocr1a_duty_float > top_value:
-                        show_warning("Ugyldig Duty Cycle", "Den ønskede Duty Cycle kan ikke opnås (OCR1A for duty cycle uden for rækkevidde).")
+                        show_warning("Ugyldig Duty Cycle", "OCR1A for duty cycle uden for rækkevidde.")
                         return
                     ocr1a = round(ocr1a_duty_float) # This OCR1A is for duty cycle, not TOP
 
@@ -260,15 +309,15 @@ class Timer1Calculator:
                 show_warning("Ugyldig Tilstand", "Vælg venligst en gyldig timertilstand.")
                 return
 
-            self.timer1_actual_freq_label.set(f"{actual_freq:.2f} Hz / {actual_delay_s*1000:.2f} ms" if selected_mode == "Normal" else f"{actual_freq:.2f} Hz")
-            self.timer1_error_label.set(f"{calc_error:.4f}%")
-            self.timer1_tccr1a_label.set(f"0b{tccr1a:08b}")
-            self.timer1_tccr1b_label.set(f"0b{tccr1b:08b}")
-            self.timer1_tccr1c_label.set(f"0b{tccr1c:08b}")
-            self.timer1_ocr1a_label.set(f"{ocr1a}")
-            self.timer1_icr1_label.set(f"{icr1}")
-            self.timer1_tcnt1_label.set(f"{tcnt1}")
-            self.timer1_actual_duty_label.set(f"{actual_duty:.2f}%")
+            self.timer1_actual_freq_label.set_markup(f"<span weight='bold'>{actual_freq:.2f} Hz / {actual_delay_s*1000:.2f} ms</span>" if selected_mode == "Normal" else f"<span weight='bold'>{actual_freq:.2f} Hz</span>")
+            self.timer1_error_label.set_label(f"{calc_error:.4f}%")
+            self.timer1_tccr1a_label.set_label(f"0b{tccr1a:08b}")
+            self.timer1_tccr1b_label.set_label(f"0b{tccr1b:08b}")
+            self.timer1_tccr1c_label.set_label(f"0b{tccr1c:08b}")
+            self.timer1_ocr1a_label.set_label(f"{ocr1a}")
+            self.timer1_icr1_label.set_label(f"{icr1}")
+            self.timer1_tcnt1_label.set_label(f"{tcnt1}")
+            self.timer1_actual_duty_label.set_label(f"{actual_duty:.2f}%")
 
 
         except ValueError as e:
@@ -282,12 +331,12 @@ class Timer1Calculator:
             self._clear_results()
     
     def _clear_results(self):
-        self.timer1_actual_freq_label.set("N/A")
-        self.timer1_error_label.set("N/A")
-        self.timer1_tccr1a_label.set("N/A")
-        self.timer1_tccr1b_label.set("N/A")
-        self.timer1_tccr1c_label.set("N/A")
-        self.timer1_ocr1a_label.set("N/A")
-        self.timer1_icr1_label.set("N/A")
-        self.timer1_tcnt1_label.set("N/A")
-        self.timer1_actual_duty_label.set("N/A")
+        self.timer1_actual_freq_label.set_markup("<span weight='bold'>N/A</span>")
+        self.timer1_error_label.set_label("N/A")
+        self.timer1_tccr1a_label.set_label("N/A")
+        self.timer1_tccr1b_label.set_label("N/A")
+        self.timer1_tccr1c_label.set_label("N/A")
+        self.timer1_ocr1a_label.set_label("N/A")
+        self.timer1_icr1_label.set_label("N/A")
+        self.timer1_tcnt1_label.set_label("N/A")
+        self.timer1_actual_duty_label.set_label("N/A")

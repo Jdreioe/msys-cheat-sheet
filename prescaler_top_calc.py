@@ -1,67 +1,113 @@
-import tkinter as tk
-from tkinter import ttk
-from constants import CPU_FREQ_DEFAULT, PRESCALERS_T0_T1_T2, WGM_BITS_T0, WGM_BITS_T1, WGM_BITS_T2
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GLib
+
+# Import from your separate files
+from constants import (
+    CPU_FREQ_DEFAULT, PRESCALERS_T0_T1_T2,
+    WGM_BITS_T0, WGM_BITS_T1, WGM_BITS_T2
+)
 from utils import parse_hex_bin_int, show_error, show_warning
 
-class PrescalerTOPCalculator:
-    def __init__(self, master_frame, cpu_freq_var):
-        self.master_frame = master_frame
-        self.cpu_freq_entry_var = cpu_freq_var # Use shared CPU freq var
+class PrescalerTOPCalculator(Gtk.Box):
+    def __init__(self, cpu_freq_entry):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_margin_start(10)
+        self.set_margin_end(10)
+        self.set_margin_top(10)
+        self.set_margin_bottom(10)
 
-        self.prescaler_desired_freq_var = tk.StringVar()
-        self.prescaler_mode_selection_var = tk.StringVar()
-        self.prescaler_desired_top_var = tk.StringVar(value="0") # Default 0
-        self.prescaler_timer_selection_var = tk.StringVar(value="Timer0")
-        self.calculated_prescaler_var = tk.StringVar()
-        self.calculated_top_var = tk.StringVar()
-        self.calculated_actual_freq_var = tk.StringVar()
-        self.calculated_error_percent_var = tk.StringVar()
+        self.cpu_freq_entry_var = CPU_FREQ_DEFAULT # Use shared CPU freq var
+
+        self.prescaler_desired_freq_buffer = Gtk.EntryBuffer()
+        self.prescaler_desired_top_buffer = Gtk.EntryBuffer(text="0") # Default 0
+
+        self.prescaler_timer_selection_store = Gtk.StringList.new(["Timer0", "Timer1", "Timer2"])
+        self.prescaler_timer_selection_dropdown = Gtk.DropDown.new(self.prescaler_timer_selection_store, None)
+        self.prescaler_timer_selection_dropdown.set_selected(0) # Default to Timer0
+        self.prescaler_timer_selection_dropdown.connect("notify::selected", self._update_prescaler_mode_options)
+
+        self.prescaler_mode_selection_store = Gtk.StringList.new([])
+        self.prescaler_mode_selection_dropdown = Gtk.DropDown.new(self.prescaler_mode_selection_store, None)
+        self.prescaler_mode_selection_dropdown.set_property("width-request", 200)
 
         self._create_widgets()
+        self._update_prescaler_mode_options() # Initial population of mode dropdown
 
     def _create_widgets(self):
-        prescaler_calc_frame = self.master_frame
+        grid = Gtk.Grid()
+        grid.set_column_spacing(5)
+        grid.set_row_spacing(5)
+        self.append(grid)
 
         # Inputs
-        ttk.Label(prescaler_calc_frame, text="Ønsket Frekvens (Hz):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
-        self.prescaler_desired_freq_entry = ttk.Entry(prescaler_calc_frame, textvariable=self.prescaler_desired_freq_var)
-        self.prescaler_desired_freq_entry.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        grid.attach(Gtk.Label(label="Ønsket Frekvens (Hz):", xalign=0), 0, 0, 1, 1)
+        self.prescaler_desired_freq_entry = Gtk.Entry(buffer=self.prescaler_desired_freq_buffer)
+        grid.attach(self.prescaler_desired_freq_entry, 1, 0, 1, 1)
 
-        ttk.Label(prescaler_calc_frame, text="Timer Mode:").grid(row=1, column=0, padx=5, pady=2, sticky="w")
-        self.prescaler_mode_selection_combobox = ttk.Combobox(prescaler_calc_frame, textvariable=self.prescaler_mode_selection_var, state="readonly")
-        self.prescaler_mode_selection_combobox.grid(row=1, column=1, padx=5, pady=2, sticky="ew")
-        
-        ttk.Label(prescaler_calc_frame, text="Ønsket TOP værdi (hvis relevant):").grid(row=2, column=0, padx=5, pady=2, sticky="w")
-        self.prescaler_desired_top_entry = ttk.Entry(prescaler_calc_frame, textvariable=self.prescaler_desired_top_var)
-        self.prescaler_desired_top_entry.grid(row=2, column=1, padx=5, pady=2, sticky="ew")
-        
-        # Timer selection for this section
-        ttk.Label(prescaler_calc_frame, text="Vælg Timer:").grid(row=3, column=0, padx=5, pady=2, sticky="w")
-        ttk.Radiobutton(prescaler_calc_frame, text="Timer0", variable=self.prescaler_timer_selection_var, value="Timer0", command=self._update_prescaler_mode_options).grid(row=3, column=1, padx=5, pady=2, sticky="w")
-        ttk.Radiobutton(prescaler_calc_frame, text="Timer1", variable=self.prescaler_timer_selection_var, value="Timer1", command=self._update_prescaler_mode_options).grid(row=3, column=2, padx=5, pady=2, sticky="w")
-        ttk.Radiobutton(prescaler_calc_frame, text="Timer2", variable=self.prescaler_timer_selection_var, value="Timer2", command=self._update_prescaler_mode_options).grid(row=3, column=3, padx=5, pady=2, sticky="w")
+        grid.attach(Gtk.Label(label="Timer Mode:", xalign=0), 0, 1, 1, 1)
+        grid.attach(self.prescaler_mode_selection_dropdown, 1, 1, 1, 1)
+
+        grid.attach(Gtk.Label(label="Ønsket TOP værdi (hvis relevant):", xalign=0), 0, 2, 1, 1)
+        self.prescaler_desired_top_entry = Gtk.Entry(buffer=self.prescaler_desired_top_buffer)
+        grid.attach(self.prescaler_desired_top_entry, 1, 2, 1, 1)
+
+        # Timer selection for this section (using RadioButtons within a Box)
+        grid.attach(Gtk.Label(label="Vælg Timer:", xalign=0), 0, 3, 1, 1)
+        timer_radio_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        grid.attach(timer_radio_box, 1, 3, 3, 1)
+
+        self.radio_timer0 = Gtk.CheckButton(label="Timer0")
+        self.radio_timer0.set_group(None)
+        self.radio_timer0.set_active(True)
+        self.radio_timer0.connect("toggled", self._update_prescaler_mode_options)
+        timer_radio_box.append(self.radio_timer0)
+
+        self.radio_timer1 = Gtk.CheckButton(label="Timer1")
+        self.radio_timer1.set_group(self.radio_timer0)
+        self.radio_timer1.connect("toggled", self._update_prescaler_mode_options)
+        timer_radio_box.append(self.radio_timer1)
+
+        self.radio_timer2 = Gtk.CheckButton(label="Timer2")
+        self.radio_timer2.set_group(self.radio_timer0)
+        self.radio_timer2.connect("toggled", self._update_prescaler_mode_options)
+        timer_radio_box.append(self.radio_timer2)
         
         # Calculate Button
-        ttk.Button(prescaler_calc_frame, text="Beregn Prescaler", command=self.calculate_prescaler_and_top).grid(row=4, column=0, columnspan=4, pady=10)
+        calculate_button = Gtk.Button(label="Beregn Prescaler")
+        calculate_button.connect("clicked", self.calculate_prescaler_and_top)
+        grid.attach(calculate_button, 0, 4, 4, 1)
 
         # Outputs
-        ttk.Label(prescaler_calc_frame, text="Optimal Prescaler:").grid(row=5, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(prescaler_calc_frame, textvariable=self.calculated_prescaler_var, font=("TkDefaultFont", 10, "bold")).grid(row=5, column=1, columnspan=3, padx=5, pady=2, sticky="w")
+        self.calculated_prescaler_label = Gtk.Label(label="N/A", xalign=0)
+        self.calculated_prescaler_label.set_markup("<span weight='bold'>N/A</span>")
+        grid.attach(Gtk.Label(label="Optimal Prescaler:", xalign=0), 0, 5, 1, 1)
+        grid.attach(self.calculated_prescaler_label, 1, 5, 3, 1)
 
-        ttk.Label(prescaler_calc_frame, text="Anbefalet TOP-værdi:").grid(row=6, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(prescaler_calc_frame, textvariable=self.calculated_top_var, font=("TkDefaultFont", 10, "bold")).grid(row=6, column=1, columnspan=3, padx=5, pady=2, sticky="w")
+        self.calculated_top_label = Gtk.Label(label="N/A", xalign=0)
+        self.calculated_top_label.set_markup("<span weight='bold'>N/A</span>")
+        grid.attach(Gtk.Label(label="Anbefalet TOP-værdi:", xalign=0), 0, 6, 1, 1)
+        grid.attach(self.calculated_top_label, 1, 6, 3, 1)
 
-        ttk.Label(prescaler_calc_frame, text="Faktisk Frekvens:").grid(row=7, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(prescaler_calc_frame, textvariable=self.calculated_actual_freq_var).grid(row=7, column=1, columnspan=3, padx=5, pady=2, sticky="w")
+        self.calculated_actual_freq_label = Gtk.Label(label="N/A", xalign=0)
+        grid.attach(Gtk.Label(label="Faktisk Frekvens:", xalign=0), 0, 7, 1, 1)
+        grid.attach(self.calculated_actual_freq_label, 1, 7, 3, 1)
         
-        ttk.Label(prescaler_calc_frame, text="Fejl (%):").grid(row=8, column=0, padx=5, pady=2, sticky="w")
-        ttk.Label(prescaler_calc_frame, textvariable=self.calculated_error_percent_var).grid(row=8, column=1, columnspan=3, padx=5, pady=2, sticky="w")
+        self.calculated_error_percent_label = Gtk.Label(label="N/A", xalign=0)
+        grid.attach(Gtk.Label(label="Fejl (%):", xalign=0), 0, 8, 1, 1)
+        grid.attach(self.calculated_error_percent_label, 1, 8, 3, 1)
 
-        self._update_prescaler_mode_options() # Initial population of mode combobox
+    def _get_selected_timer(self):
+        if self.radio_timer0.get_active():
+            return "Timer0"
+        elif self.radio_timer1.get_active():
+            return "Timer1"
+        elif self.radio_timer2.get_active():
+            return "Timer2"
+        return ""
 
-
-    def _update_prescaler_mode_options(self):
-        selected_timer = self.prescaler_timer_selection_var.get()
+    def _update_prescaler_mode_options(self, *args):
+        selected_timer = self._get_selected_timer()
         modes = []
         if selected_timer == "Timer0":
             modes = list(WGM_BITS_T0.keys())
@@ -70,24 +116,39 @@ class PrescalerTOPCalculator:
         elif selected_timer == "Timer2":
             modes = list(WGM_BITS_T2.keys())
         
-        self.prescaler_mode_selection_combobox['values'] = modes
+        # --- FIX START ---
+        # Create a new Gtk.StringList with the updated modes
+        new_mode_store = Gtk.StringList.new(modes)
+        # Set the new model to the dropdown
+        self.prescaler_mode_selection_dropdown.set_model(new_mode_store)
+        self.prescaler_mode_selection_store = new_mode_store # Update internal reference
+        # --- FIX END ---
+
         if modes:
-            self.prescaler_mode_selection_combobox.set(modes[0]) # Set default to first mode
+            self.prescaler_mode_selection_dropdown.set_selected(0) # Set default to first mode
         else:
-            self.prescaler_mode_selection_combobox.set("")
+            self.prescaler_mode_selection_dropdown.set_selected(-1) # No selection
+    def calculate_prescaler_and_top(self, button):
+        # Pass the parent window to the error/warning dialogs
+        parent_window = self.get_root()
 
-
-    def calculate_prescaler_and_top(self):
         try:
-            cpu_freq_mhz = float(self.cpu_freq_entry_var.get())
+            cpu_freq_mhz = float(self.cpu_freq_entry_var.get_text())
             cpu_freq_hz = cpu_freq_mhz * 1_000_000
-            desired_freq = float(self.prescaler_desired_freq_var.get())
-            selected_timer = self.prescaler_timer_selection_var.get()
-            selected_mode = self.prescaler_mode_selection_var.get()
-            desired_top_input = parse_hex_bin_int(self.prescaler_desired_top_var.get())
+            desired_freq = float(self.prescaler_desired_freq_buffer.get_text())
+            selected_timer = self._get_selected_timer()
+            
+            selected_index = self.prescaler_mode_selection_dropdown.get_selected()
+            if selected_index == -1:
+                show_error("Input Fejl", "Vælg venligst en Timer Mode.", parent_window)
+                self._clear_results()
+                return
+
+            selected_mode = self.prescaler_mode_selection_store.get_string(selected_index)
+            desired_top_input = parse_hex_bin_int(self.prescaler_desired_top_buffer.get_text())
 
             if desired_freq <= 0:
-                show_error("Ugyldig Frekvens", "Ønsket frekvens skal være større end nul.")
+                show_error("Ugyldig Frekvens", "Ønsket frekvens skal være større end nul.", parent_window)
                 self._clear_results()
                 return
 
@@ -98,6 +159,7 @@ class PrescalerTOPCalculator:
 
             prescaler_options = []
             max_top = 0
+            wgm_map = {}
 
             if selected_timer == "Timer0":
                 prescaler_options = [int(p) for p in PRESCALERS_T0_T1_T2["T0_T1"].keys() if p != "0"]
@@ -117,33 +179,43 @@ class PrescalerTOPCalculator:
             for prescaler in prescaler_options:
                 divisor = 1 
                 
-                # Determine divisor based on mode type
-                if "Phase Correct" in selected_mode or "CTC" in selected_mode:
-                    divisor = 2
+                mode_info = wgm_map.get(selected_mode, {})
                 
-                # Check for fixed TOP modes first
-                fixed_top_mode = wgm_map.get(selected_mode, {}).get("TOP_fixed")
+                if "Phase Correct" in selected_mode:
+                    divisor = 2
+                if selected_timer == "Timer1" and "formula_factor" in mode_info:
+                    divisor = mode_info["formula_factor"]
+                elif "CTC" in selected_mode or "Fast PWM" in selected_mode:
+                    divisor = 1
+
+
+                fixed_top_mode = mode_info.get("TOP_fixed")
                 if fixed_top_mode is not None:
                     top_candidate = fixed_top_mode
                 elif selected_mode == "Normal":
                     top_candidate = max_top
-                else: # Modes where TOP is calculable (CTC, Fast PWM with variable TOP, Phase Correct with variable TOP)
+                elif mode_info.get("TOP_variable"):
                     denominator_calc_top = divisor * prescaler * desired_freq
                     if denominator_calc_top == 0: continue
-                    calculated_top_float = (cpu_freq_hz / denominator_calc_top) - 1
-                    top_candidate = round(calculated_top_float)
+                    
+                    if "Phase Correct" in selected_mode:
+                        calculated_top_float = (cpu_freq_hz / (divisor * prescaler * desired_freq))
+                        top_candidate = round(calculated_top_float)
+                    else:
+                        calculated_top_float = (cpu_freq_hz / denominator_calc_top) - 1
+                        top_candidate = round(calculated_top_float)
+                else:
+                    continue
 
                 if top_candidate < 0 or top_candidate > max_top:
                     continue 
 
-                # Calculate actual frequency with this (prescaler, top_candidate) pair
                 if "Phase Correct" in selected_mode:
                     if top_candidate == 0: continue
-                    actual_freq_candidate = cpu_freq_hz / (2 * prescaler * top_candidate)
-                else: # Normal, CTC, Fast PWM
+                    actual_freq_candidate = cpu_freq_hz / (divisor * prescaler * top_candidate)
+                else:
                     if (top_candidate + 1) == 0: continue
                     actual_freq_candidate = cpu_freq_hz / (divisor * prescaler * (top_candidate + 1))
-
 
                 freq_error = abs(actual_freq_candidate - desired_freq)
 
@@ -155,26 +227,26 @@ class PrescalerTOPCalculator:
 
             if best_prescaler is not None:
                 error_percent = (abs(actual_achieved_freq - desired_freq) / desired_freq) * 100
-                self.calculated_prescaler_var.set(str(best_prescaler))
-                self.calculated_top_var.set(str(best_top))
-                self.calculated_actual_freq_var.set(f"{actual_achieved_freq:.2f} Hz")
-                self.calculated_error_percent_var.set(f"{error_percent:.4f}%")
+                self.calculated_prescaler_label.set_markup(f"<span weight='bold'>{best_prescaler}</span>")
+                self.calculated_top_label.set_markup(f"<span weight='bold'>{best_top}</span>")
+                self.calculated_actual_freq_label.set_text(f"{actual_achieved_freq:.2f} Hz")
+                self.calculated_error_percent_label.set_text(f"{error_percent:.4f}%")
             else:
-                show_warning("Intet Match", "Kunne ikke finde en passende prescaler og TOP-værdi for den ønskede frekvens med de valgte indstillinger. Prøv en anden frekvens eller tilstand.")
+                show_warning("Intet Match", "Kunne ikke finde en passende prescaler og TOP-værdi for den ønskede frekvens med de valgte indstillinger. Prøv en anden frekvens eller tilstand.", parent_window)
                 self._clear_results()
 
         except ValueError as ve:
-            show_error("Input Fejl", f"Ugyldigt input: {ve}. Sørg for, at alle felter indeholder gyldige tal.")
+            show_error("Input Fejl", f"Ugyldigt input: {ve}. Sørg for, at alle felter indeholder gyldige tal.", parent_window)
             self._clear_results()
         except KeyError as ke:
-            show_error("Konfigurationsfejl", f"Ukendt mode eller prescaler: {ke}. Kontroller indstillingerne i constants.py")
+            show_error("Konfigurationsfejl", f"Ukendt mode eller prescaler: {ke}. Kontroller indstillingerne.", parent_window)
             self._clear_results()
         except Exception as e:
-            show_error("Fejl", f"En uventet fejl opstod: {e}")
+            show_error("Fejl", f"En uventet fejl opstod: {e}", parent_window)
             self._clear_results()
 
     def _clear_results(self):
-        self.calculated_prescaler_var.set("N/A")
-        self.calculated_top_var.set("N/A")
-        self.calculated_actual_freq_var.set("N/A")
-        self.calculated_error_percent_var.set("N/A")
+        self.calculated_prescaler_label.set_markup("<span weight='bold'>N/A</span>")
+        self.calculated_top_label.set_markup("<span weight='bold'>N/A</span>")
+        self.calculated_actual_freq_label.set_text("N/A")
+        self.calculated_error_percent_label.set_text("N/A")

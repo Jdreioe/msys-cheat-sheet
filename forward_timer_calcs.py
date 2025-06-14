@@ -1,45 +1,47 @@
-import tkinter as tk
-from tkinter import ttk
-from constants import CPU_FREQ_DEFAULT
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, Pango
+
+# Import your GTK4 converted timer calculator classes
 from timer0_calc import Timer0Calculator
 from timer1_calc import Timer1Calculator
 from timer2_calc import Timer2Calculator
-from prescaler_top_calc import PrescalerTOPCalculator
 
-class ForwardTimerCalculations:
-    def __init__(self, master_tab):
-        self.master_tab = master_tab
-        self.cpu_freq_var = tk.StringVar(value=str(CPU_FREQ_DEFAULT / 1_000_000))
+# Assuming these are GTK4-compatible or simple Python constants/functions
+from constants import CPU_FREQ_DEFAULT, PRESCALERS_T0_T1_T2
+from utils import parse_hex_bin_int, show_error, show_warning
+
+
+class ForwardTimerCalculations(Gtk.Box):
+    """
+    GTK4 container for various forward timer calculation tabs (Timer0, Timer1, Timer2).
+    """
+    def __init__(self, cpu_freq_entry):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_margin_start(10)
+        self.set_margin_end(10)
+        self.set_margin_top(10)
+        self.set_margin_bottom(10)
+
+        self.cpu_freq_entry = cpu_freq_entry  # Store the Gtk.Entry widget passed from MainWindow
 
         self._create_widgets()
 
     def _create_widgets(self):
-        # Main frame for at ændre CPU frequency
-        cpu_freq_frame = ttk.LabelFrame(self.master_tab, text="Fælles CPU Frekvens")
-        cpu_freq_frame.pack(padx=10, pady=5, fill="x")
-        ttk.Label(cpu_freq_frame, text="CPU Clock Freq (MHz):").pack(side="left", padx=5, pady=2)
-        ttk.Entry(cpu_freq_frame, textvariable=self.cpu_freq_var).pack(side="left", padx=5, pady=2, expand=True, fill="x")
-
-        # Notebook for individuelle timers
-        self.notebook = ttk.Notebook(self.master_tab)
-        self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
+        # Notebook for individual timers
+        self.notebook = Gtk.Notebook()
+        self.append(self.notebook)
+        self.notebook.set_hexpand(True)
+        self.notebook.set_vexpand(True)
 
         # Timer0 Tab
-        self.timer0_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.timer0_tab, text="Timer0")
-        self.timer0_calculator = Timer0Calculator(self.timer0_tab, self.cpu_freq_var)
+        self.timer0_calculator = Timer0Calculator(self, self.cpu_freq_entry)
+        self.notebook.append_page(self.timer0_calculator, Gtk.Label(label="Timer0"))
 
         # Timer1 Tab
-        self.timer1_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.timer1_tab, text="Timer1")
-        self.timer1_calculator = Timer1Calculator(self.timer1_tab, self.cpu_freq_var)
+        self.timer1_calculator = Timer1Calculator(self, self.cpu_freq_entry)
+        self.notebook.append_page(self.timer1_calculator, Gtk.Label(label="Timer1"))
 
         # Timer2 Tab
-        self.timer2_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.timer2_tab, text="Timer2")
-        self.timer2_calculator = Timer2Calculator(self.timer2_tab, self.cpu_freq_var)
-
-        # Seperate frame for Prescaler & TOP calculations
-        prescaler_top_frame = ttk.LabelFrame(self.master_tab, text="Beregn Optimal Prescaler & TOP")
-        prescaler_top_frame.pack(padx=10, pady=10, fill="x")
-        self.prescaler_top_calculator = PrescalerTOPCalculator(prescaler_top_frame, self.cpu_freq_var)
+        self.timer2_calculator = Timer2Calculator(self, self.cpu_freq_entry)
+        self.notebook.append_page(self.timer2_calculator, Gtk.Label(label="Timer2"))
