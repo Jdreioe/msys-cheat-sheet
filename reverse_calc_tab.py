@@ -23,20 +23,6 @@ class ReverseCalculatorTab(Gtk.Box):
         self._create_widgets()
 
     def _create_widgets(self):
-        # --- Common Settings ---
-        common_frame = Gtk.Frame(label="Fælles Indstillinger")
-        self.append(common_frame)
-        common_frame.set_margin_bottom(10)
-
-        common_grid = Gtk.Grid()
-        common_grid.set_row_spacing(5)
-        common_grid.set_column_spacing(5)
-        common_grid.set_margin_start(5)
-        common_grid.set_margin_end(5)
-        common_grid.set_margin_top(5)
-        common_grid.set_margin_bottom(5)
-        common_frame.set_child(common_grid)
-
         # --- Timer Selection ---
         timer_selection_frame = Gtk.Frame(label="Vælg Timer")
         self.append(timer_selection_frame)
@@ -71,6 +57,14 @@ class ReverseCalculatorTab(Gtk.Box):
         self.timer2_radio.connect("toggled", self._on_timer_selected, "Timer2")
         timer_selection_box.append(self.timer2_radio)
 
+         # --- Formula Label (Dynamic) ---
+        self.formula_label = Gtk.Label(label="<b>Formel kommer når frekvens er beregnet udfra registrene</b>", xalign=0.5)
+        self.formula_label.set_wrap(True)
+        self.formula_label.set_justify(Gtk.Justification.CENTER)
+        self.append(self.formula_label)
+        self.formula_label.set_margin_bottom(10)
+
+
         # --- Timer-Specific Settings Frames (will be children of a Gtk.Stack) ---
         self.timer_stack = Gtk.Stack()
         self.append(self.timer_stack)
@@ -83,6 +77,7 @@ class ReverseCalculatorTab(Gtk.Box):
 
         # Set initial visible child
         self.timer_stack.set_visible_child_name("Timer0")
+        self._update_formula_display("Timer0", "N/A", "N/A") # Initial formula display
 
         # --- Calculate Button ---
         calculate_button = Gtk.Button(label="Beregn Frekvens")
@@ -220,7 +215,75 @@ class ReverseCalculatorTab(Gtk.Box):
         # Only change visible child if the button is active (selected)
         if button.get_active():
             self.timer_stack.set_visible_child_name(timer_name)
-            self._clear_results()  # Clear results when changing timer selection
+            # Reset formula display when changing timer
+            self._update_formula_display(timer_name, "N/A", "N/A")
+
+    def _update_formula_display(self, timer_name, mode_name, prescaler_val, ocr_icr_val=None):
+        """Updates the formula label based on the selected timer and (if known) inferred mode/prescaler."""
+        formula_text = "<b>Formel kommer når frekvens er beregnet udfra registrene</b>"
+
+        if timer_name == "Timer0":
+            if mode_name == "Normal":
+                formula_text = "<b>f_Timer0_Normal = f_CPU / (Prescaler * (0xFF + 1))</b>"
+            elif mode_name == "CTC":
+                if ocr_icr_val is not None and ocr_icr_val != -1:
+                    formula_text = f"<b>f_Timer0_CTC = f_CPU / (2 * Prescaler * ({ocr_icr_val} + 1))</b>"
+                else:
+                    formula_text = "<b>f_Timer0_CTC = f_CPU / (2 * Prescaler * (OCR0A + 1))</b>"
+            elif "Fast PWM" in mode_name:
+                formula_text = "<b>f_Timer0_FastPWM = f_CPU / (Prescaler * (0xFF + 1))</b>"
+            elif "Phase Correct PWM" in mode_name:
+                formula_text = "<b>f_Timer0_PhaseCorrectPWM = f_CPU / (2 * Prescaler * 0xFF)</b>"
+
+        elif timer_name == "Timer1":
+            max_16bit_val = 0xFFFF
+            if mode_name == "Normal":
+                formula_text = f"<b>f_Timer1_Normal = f_CPU / (Prescaler * ({max_16bit_val} + 1))</b>"
+            elif "CTC" in mode_name:
+                top_register = "OCR1A" if "TOP=OCR1A" in mode_name else "ICR1"
+                if ocr_icr_val is not None and ocr_icr_val != -1:
+                    formula_text = f"<b>f_Timer1_CTC = f_CPU / (2 * Prescaler * ({ocr_icr_val} + 1))</b>"
+                else:
+                    formula_text = f"<b>f_Timer1_CTC = f_CPU / (2 * Prescaler * ({top_register} + 1))</b>"
+            elif "Fast PWM" in mode_name:
+                top_register = "TOP" # Placeholder, actual register depends on sub-mode
+                if "TOP_fixed" in WGM_BITS_T1.get(mode_name, {}):
+                    top_fixed_val = WGM_BITS_T1[mode_name]["TOP_fixed"]
+                    formula_text = f"<b>f_Timer1_FastPWM = f_CPU / (Prescaler * ({top_fixed_val} + 1))</b>"
+                else: # Variable TOP
+                    top_register = "ICR1" if "TOP=ICR1" in mode_name else "OCR1A"
+                    if ocr_icr_val is not None and ocr_icr_val != -1:
+                        formula_text = f"<b>f_Timer1_FastPWM = f_CPU / (Prescaler * ({ocr_icr_val} + 1))</b>"
+                    else:
+                        formula_text = f"<b>f_Timer1_FastPWM = f_CPU / (Prescaler * ({top_register} + 1))</b>"
+            elif "Phase Correct PWM" in mode_name:
+                top_register = "TOP" # Placeholder
+                if "TOP_fixed" in WGM_BITS_T1.get(mode_name, {}):
+                    top_fixed_val = WGM_BITS_T1[mode_name]["TOP_fixed"]
+                    formula_text = f"<b>f_Timer1_PhaseCorrectPWM = f_CPU / (2 * Prescaler * {top_fixed_val})</b>"
+                else: # Variable TOP
+                    top_register = "ICR1" if "TOP=ICR1" in mode_name else "OCR1A"
+                    if ocr_icr_val is not None and ocr_icr_val != -1:
+                        formula_text = f"<b>f_Timer1_PhaseCorrectPWM = f_CPU / (2 * Prescaler * {ocr_icr_val})</b>"
+                    else:
+                        formula_text = f"<b>f_Timer1_PhaseCorrectPWM = f_CPU / (2 * Prescaler * {top_register})</b>"
+        elif timer_name == "Timer2":
+            if mode_name == "Normal":
+                formula_text = "<b>f_Timer2_Normal = f_CPU / (Prescaler * (0xFF + 1))</b>"
+            elif mode_name == "CTC":
+                if ocr_icr_val is not None and ocr_icr_val != -1:
+                    formula_text = f"<b>f_Timer2_CTC = f_CPU / (2 * Prescaler * ({ocr_icr_val} + 1))</b>"
+                else:
+                    formula_text = "<b>f_Timer2_CTC = f_CPU / (2 * Prescaler * (OCR2A + 1))</b>"
+            elif "Fast PWM" in mode_name:
+                formula_text = "<b>f_Timer2_FastPWM = f_CPU / (Prescaler * (0xFF + 1))</b>"
+            elif "Phase Correct PWM" in mode_name:
+                formula_text = "<b>f_Timer2_PhaseCorrectPWM = f_CPU / (2 * Prescaler * 0xFF)</b>"
+            else:
+                formula_text = f"<b>Formel kommer når frekvens er beregnet udfra registrene</b>"
+
+        self.formula_label.set_markup(formula_text)
+
 
     def calculate_frequency_from_registers(self, button):
         try:
@@ -244,9 +307,15 @@ class ReverseCalculatorTab(Gtk.Box):
             if not selected_timer:
                 show_error("Fejl", "Vælg venligst en timer.")
                 self._clear_results()
+                self._update_formula_display(selected_timer, "N/A", "N/A")
                 return
 
             self._clear_results()  # Clear previous results
+
+            # Variables to pass to _update_formula_display
+            current_mode_name = "Ukendt Tilstand"
+            prescaler_val = 0
+            ocr_icr_for_formula = None
 
             # --- Logic for Timer0 ---
             if selected_timer == "Timer0":
@@ -263,7 +332,6 @@ class ReverseCalculatorTab(Gtk.Box):
                 cs_bits = tccr0b_val & 0x07
 
                 # Find the matching WGM mode
-                current_mode_name = "Ukendt Tilstand"
                 top_value = 0  # Default TOP
                 for mode_name, bits in WGM_BITS_T0.items():
                     if (bits["WGM02"] == wgm02 and
@@ -272,6 +340,7 @@ class ReverseCalculatorTab(Gtk.Box):
                         current_mode_name = mode_name
                         if mode_name == "CTC":
                             top_value = ocr0a_val  # TOP is OCR0A for Timer0 CTC
+                            ocr_icr_for_formula = ocr0a_val
                         elif mode_name == "Normal" or "PWM" in mode_name:
                             top_value = 0xFF  # Fixed TOP for 8-bit modes
                         break
@@ -281,7 +350,6 @@ class ReverseCalculatorTab(Gtk.Box):
                     top_value = 0xFF  # Default to Normal mode TOP for safety
 
                 # Find the prescaler value
-                prescaler_val = 0
                 for p_str, p_bits in PRESCALERS_T0_T1_T2["T0_T1"].items():
                     if p_bits == cs_bits:
                         prescaler_val = int(p_str)
@@ -290,6 +358,7 @@ class ReverseCalculatorTab(Gtk.Box):
                 if prescaler_val == 0:
                     show_warning("Fejl", "Ugyldig prescaler indstilling for Timer0. Timeren er muligvis stoppet.")
                     self._display_results("N/A", "N/A", "N/A")
+                    self._update_formula_display(selected_timer, current_mode_name, prescaler_val, ocr_icr_for_formula)
                     return
 
                 # Calculate Frequency
@@ -307,6 +376,7 @@ class ReverseCalculatorTab(Gtk.Box):
                     actual_freq = cpu_freq_hz / (prescaler_val * (top_value + 1))  # Fallback
 
                 self._display_results(f"{actual_freq:.2f} Hz", current_mode_name, prescaler_val)
+                self._update_formula_display(selected_timer, current_mode_name, prescaler_val, ocr_icr_for_formula)
 
             # --- Logic for Timer1 ---
             elif selected_timer == "Timer1":
@@ -325,7 +395,6 @@ class ReverseCalculatorTab(Gtk.Box):
                 cs_bits = tccr1b_val & 0x07
 
                 # Find the matching W WGM mode and determine TOP value
-                current_mode_name = "Ukendt Tilstand"
                 top_value = 0
                 max_16bit_val = 0xFFFF  # Max value for 16-bit timer
                 
@@ -340,8 +409,10 @@ class ReverseCalculatorTab(Gtk.Box):
                             top_value = bits["TOP_fixed"]
                         elif "TOP=OCR1A" in mode_name:
                             top_value = ocr1a_val
+                            ocr_icr_for_formula = ocr1a_val
                         elif "TOP=ICR1" in mode_name:
                             top_value = icr1_val
+                            ocr_icr_for_formula = icr1_val
                         elif mode_name == "Normal":
                             top_value = max_16bit_val  # 16-bit max for Normal mode
                         break
@@ -351,7 +422,6 @@ class ReverseCalculatorTab(Gtk.Box):
                     top_value = max_16bit_val  # Default to Normal mode TOP
 
                 # Find the prescaler value
-                prescaler_val = 0
                 for p_str, p_bits in PRESCALERS_T0_T1_T2["T0_T1"].items():
                     if p_bits == cs_bits:
                         prescaler_val = int(p_str)
@@ -360,6 +430,7 @@ class ReverseCalculatorTab(Gtk.Box):
                 if prescaler_val == 0:
                     show_warning("Fejl", "Ugyldig prescaler indstilling for Timer1. Timeren er muligvis stoppet.")
                     self._display_results("N/A", "N/A", "N/A")
+                    self._update_formula_display(selected_timer, current_mode_name, prescaler_val, ocr_icr_for_formula)
                     return
 
                 # Calculate Frequency based on identified mode
@@ -378,6 +449,7 @@ class ReverseCalculatorTab(Gtk.Box):
                     actual_freq = cpu_freq_hz / (prescaler_val * (max_16bit_val + 1))  # Fallback
 
                 self._display_results(f"{actual_freq:.2f} Hz", current_mode_name, prescaler_val)
+                self._update_formula_display(selected_timer, current_mode_name, prescaler_val, ocr_icr_for_formula)
 
             # --- Logic for Timer2 ---
             elif selected_timer == "Timer2":
@@ -394,7 +466,6 @@ class ReverseCalculatorTab(Gtk.Box):
                 cs_bits = tccr2b_val & 0x07
 
                 # Find the matching WGM mode
-                current_mode_name = "Ukendt Tilstand"
                 top_value = 0  # Default TOP
                 for mode_name, bits in WGM_BITS_T2.items():
                     if (bits["WGM22"] == wgm22 and
@@ -403,6 +474,7 @@ class ReverseCalculatorTab(Gtk.Box):
                         current_mode_name = mode_name
                         if mode_name == "CTC":
                             top_value = ocr2a_val
+                            ocr_icr_for_formula = ocr2a_val
                         elif mode_name == "Normal" or "PWM" in mode_name:
                             top_value = 0xFF  # Fixed TOP for 8-bit modes
                         break
@@ -412,7 +484,6 @@ class ReverseCalculatorTab(Gtk.Box):
                     top_value = 0xFF  # Default to Normal mode TOP
 
                 # Find the prescaler value (using T2 specific prescalers)
-                prescaler_val = 0
                 for p_str, p_bits in PRESCALERS_T0_T1_T2["T2"].items():
                     if p_bits == cs_bits:
                         prescaler_val = int(p_str)
@@ -421,6 +492,7 @@ class ReverseCalculatorTab(Gtk.Box):
                 if prescaler_val == 0:
                     show_warning("Fejl", "Ugyldig prescaler indstilling for Timer2. Timeren er muligvis stoppet.")
                     self._display_results("N/A", "N/A", "N/A")
+                    self._update_formula_display(selected_timer, current_mode_name, prescaler_val, ocr_icr_for_formula)
                     return
 
                 # Calculate Frequency
@@ -438,16 +510,21 @@ class ReverseCalculatorTab(Gtk.Box):
                     actual_freq = cpu_freq_hz / (prescaler_val * (top_value + 1))  # Fallback
 
                 self._display_results(f"{actual_freq:.2f} Hz", current_mode_name, prescaler_val)
+                self._update_formula_display(selected_timer, current_mode_name, prescaler_val, ocr_icr_for_formula)
 
         except ValueError as ve:
             show_error("Input Fejl", f"Ugyldigt input: {ve}. Sørg for, at alle felter indeholder gyldige tal eller binære/hex værdier.")
             self._clear_results()
+            self._update_formula_display(selected_timer, "N/A", "N/A") # Update formula on error
         except KeyError as ke:
             show_error("Konfigurationsfejl", f"Ukendt konfiguration: {ke}. Kontroller WGM-bits eller prescaler-indstillinger i constants.py.")
             self._clear_results()
+            self._update_formula_display(selected_timer, "N/A", "N/A") # Update formula on error
         except Exception as e:
             show_error("Fejl", f"En uventet fejl opstod: {e}")
             self._clear_results()
+            self._update_formula_display(selected_timer, "N/A", "N/A") # Update formula on error
+
 
     def _display_results(self, freq, mode, prescaler):
         self.calculated_freq_label.set_markup(f"<span weight='bold'>{freq}</span>")

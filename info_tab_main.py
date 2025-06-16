@@ -15,52 +15,51 @@ class InfoTab(Gtk.Box):
     """
     GTK4 tab providing comprehensive information on ATMega2560 timer interrupts,
     reading settings, configuring different timer modes, and bit manipulation.
-    Organized into multiple sub-tabs using Gtk.Notebook.
+    Organized into multiple sub-tabs using a sidebar (Gtk.StackSidebar + Gtk.Stack).
     """
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.set_homogeneous(False)
+        self.set_homogeneous(True)
         self.set_margin_start(12)
         self.set_margin_end(12)
         self.set_margin_top(12)
         self.set_margin_bottom(12)
 
-        # Main title
-        main_title_label = Gtk.Label(label="Info-tab")
-        main_title_label.add_css_class("title-1") # Apply a CSS class for styling the title
-        self.append(main_title_label)
+        # --- Sidebar and Content Area ---
+        content_area_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        content_area_box.set_hexpand(True) # Allow the content area to expand horizontally
+        content_area_box.set_vexpand(True) # Allow the content area to expand vertically
+        self.append(content_area_box)
 
-        # Create a Notebook to hold the sub-tabs
-        self.notebook = Gtk.Notebook()
-        self.append(self.notebook)
+        self.stack = Gtk.Stack()
+        self.stack.set_hexpand(True) # Allow stack to expand horizontally
+        self.stack.set_vexpand(True) # Allow stack to expand vertically
+        self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.stack.set_transition_duration(300) # milliseconds
 
-        # Add individual content tabs to the notebook
-        self._add_content_tabs()
+        self.sidebar = Gtk.StackSidebar(stack=self.stack)
+        self.sidebar.set_vexpand(True) # Allow sidebar to expand vertically
+        
+        self.sidebar.set_size_request(200, -1)
+        content_area_box.append(self.sidebar)
+        content_area_box.append(self.stack)
 
-    def _add_content_tabs(self):
-        # Tab 1: Aktivering af Interrupts
-        interrupt_tab = InterruptInfoTab()
-        self.notebook.append_page(interrupt_tab, Gtk.Label(label="Aktivering af Interrupts"))
+        self._add_content_to_stack()
 
-        # Tab 2: Aflæsning af Timerindstillinger
-        read_settings_tab = ReadSettingsInfoTab()
-        self.notebook.append_page(read_settings_tab, Gtk.Label(label="Aflæsning af Timerindstillinger"))
+    def _add_content_to_stack(self):
+        sub_tab_definitions = [
+            ("interrupts", "Aktivering af Interrupts"),
+            ("read_settings", "Aflæsning af Timerindstillinger"),
+            ("timer_modes", "Konfiguration af Timer Tilstande"),
+            ("bit_manipulation", "Sætning af Bits"),
+            ("number_systems", "Tal- og Bit Systemer"),
+            ("mega2560_stack_overview", "ATMega2560 Stack og Registeroversigt")
+        ]
 
-        # Tab 3: Konfiguration af Timer Tilstande (WGM)
-        timer_modes_tab = TimerModesInfoTab()
-        self.notebook.append_page(timer_modes_tab, Gtk.Label(label="Konfiguration af Timer Tilstande"))
-
-        # Tab 4: Hvordan man Sætter Bits i Timere
-        bit_manipulation_tab = BitManipulationInfoTab()
-        self.notebook.append_page(bit_manipulation_tab, Gtk.Label(label="Sætning af Bits"))
-
-        # Tab 5: Tal- og Bit Systemer
-        number_systems_tab = NumberSystemsTab()
-        self.notebook.append_page(number_systems_tab, Gtk.Label(label="Tal- og Bit Systemer"))
-        # Tab 6: ATMega2560 Stack og Registeroversigt
-        mega2560_stack_tab = Mega2560StackTab()
-        self.notebook.append_page(mega2560_stack_tab, Gtk.Label(label="ATMega2560 Stack og Registeroversigt"))
-        # Set the first tab as the default visible tab
-        self.notebook.set_show_tabs(True)
-        self.notebook.set_show_border(True)
-
+        self.stack.add_titled(InterruptInfoTab(), "interrupts", "Aktivering af Interrupts")
+        self.stack.add_titled(ReadSettingsInfoTab(), "read_settings", "Aflæsning af Timerindstillinger")
+        self.stack.add_titled(TimerModesInfoTab(), "timer_modes", "Konfiguration af Timer Tilstande")
+        self.stack.add_titled(BitManipulationInfoTab(), "bit_manipulation", "Sætning af Bits")
+        self.stack.add_titled(NumberSystemsTab(), "number_systems", "Tal- og Bit Systemer")
+        self.stack.add_titled(Mega2560StackTab(), "mega2560_stack_overview", "ATMega2560 Stack og Registeroversigt")
+        self.stack.set_visible_child_name("interrupts")

@@ -1,183 +1,336 @@
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Pango # Pango for font styling
-import math # For rounding
+from gi.repository import Gtk, Pango, Gdk
+import math
 
-# Assuming constants.py exists and CPU_FREQ_DEFAULT is defined there
-# For this example, I'll define a dummy value:
+# Helper function for message dialogs, passed to sub-tabs
+def _show_message_dialog_helper(parent_widget, title, message, message_type):
+    full_message_text = f"<b>{title}</b>\n\n{message}"
+    dialog = Gtk.MessageDialog(
+        transient_for=parent_widget.get_root() if parent_widget.get_root() else None,
+        modal=True,
+        message_type=message_type,
+        buttons=Gtk.ButtonsType.OK,
+        text=full_message_text
+    )
+    dialog.connect("response", lambda d, r: d.destroy())
+    dialog.present()
 
-# Make UartCalculator inherit from Gtk.Box to be a self-contained widget
-class UartCalculator(Gtk.Box):
-    def __init__(self, cpu_freq_entry): # Removed 'notebook'
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10) # Main box for the tab content
-        self.cpu_freq_entry = cpu_freq_entry
-        self._setup_uart_tab()
 
-    def _setup_uart_tab(self):
-        # Create a Gtk.Box for the content within the tab.
-        # This acts similarly to ttk.Frame in this context.
-        # Since UartCalculator itself is the tab content (Gtk.Box),
-        # we append widgets directly to self.
-        
-        # Gtk.Frame can be used as a LabelFrame equivalent
-        uart_frame = Gtk.Frame()
-        # Set the label for the frame using markup for boldness
-        # Instead of set_label_align, create a Gtk.Label, set its alignment, and use set_label_widget
-        frame_label = Gtk.Label()
-        frame_label.set_markup("<b>UART Baud Rate Calculation (Normal Mode)</b>")
-        frame_label.set_halign(Gtk.Align.START) # Align the label widget itself to the start (left)
-        uart_frame.set_label_widget(frame_label) # Set this custom label widget for the frame
-        
-        uart_frame.set_css_classes(["card"]) # Optional: style as a card if you have CSS
-        
-        # A Gtk.Grid is excellent for tabular layouts like your input fields
-        grid = Gtk.Grid()
-        grid.set_row_spacing(5)
-        grid.set_column_spacing(10)
-        grid.set_margin_start(10)
-        grid.set_margin_end(10)
-        grid.set_margin_top(10)
-        grid.set_margin_bottom(10)
-        uart_frame.set_child(grid) # Set the grid as the child of the frame
-        
-        self.append(uart_frame) # Add the frame to this Gtk.Box (self)
+class UartBaudRateCalculatorTab(Gtk.Box):
+    def __init__(self, cpu_freq_entry, show_message_dialog_func):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.cpu_freq_entry = cpu_freq_entry # Direct reference to the CPU frequency entry
+        self._show_message_dialog = show_message_dialog_func
+        self._setup_ui()
 
-        # UI elements
-        # CPU Clock Frequency
+    def _setup_ui(self):
+        grid_baud = Gtk.Grid()
+        grid_baud.set_row_spacing(5)
+        grid_baud.set_column_spacing(10)
+        grid_baud.set_margin_start(10)
+        grid_baud.set_margin_end(10)
+        grid_baud.set_margin_top(10)
+        grid_baud.set_margin_bottom(10)
+        self.append(grid_baud)
 
-        # Desired Baud Rate
-        desired_baud_label = Gtk.Label(label="Desired Baud Rate (bps):", xalign=0)
-        grid.attach(desired_baud_label, 0, 1, 1, 1)
+        formula_explanation_label = Gtk.Label()
+        formula_explanation_label.set_markup("<b>BAUD = f_cpu / (16 * (UBRRn + 1))</b>")
+        formula_explanation_label.set_wrap(True)
+        formula_explanation_label.set_justify(Gtk.Justification.CENTER)
+        grid_baud.attach(formula_explanation_label, 0, 0, 2, 1)
+
+        desired_baud_label = Gtk.Label(label="Ønsket Baud Rate (bps):", xalign=0)
+        grid_baud.attach(desired_baud_label, 0, 1, 1, 1)
         self.uart_desired_baud_entry = Gtk.Entry()
-        uart_desired_baud_rate_default = 9600
-        self.uart_desired_baud_entry.set_text(str(uart_desired_baud_rate_default))
-        grid.attach(self.uart_desired_baud_entry, 1, 1, 1, 1)
 
-        # Note about U2Xn bit
-        note_label = Gtk.Label(label="<i>Note: Assumes U2Xn bit is 0 (Normal Mode).</i>")
-        note_label.set_use_markup(True) # Enable markup for italic text
-        note_label.set_halign(Gtk.Align.START) # Align to start (left)
-        grid.attach(note_label, 0, 2, 2, 1) # Span two columns
+        self.uart_desired_baud_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.uart_desired_baud_entry.connect("changed", self._on_baud_input_changed)
+        grid_baud.attach(self.uart_desired_baud_entry, 1, 1, 1, 1)
 
-        # Calculate Button
-        btn_calculate_uart = Gtk.Button(label="Calculate Baud Rate Settings")
-        btn_calculate_uart.connect("clicked", self._on_calculate_uart_clicked)
-        grid.attach(btn_calculate_uart, 0, 3, 2, 1) # Span two columns
+        ubrr_input_label = Gtk.Label(label="UBRRn Værdi:", xalign=0)
+        grid_baud.attach(ubrr_input_label, 0, 2, 1, 1)
+        self.uart_ubrr_input_entry = Gtk.Entry()
+        self.uart_ubrr_input_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.uart_ubrr_input_entry.connect("changed", self._on_baud_input_changed)
+        grid_baud.attach(self.uart_ubrr_input_entry, 1, 2, 1, 1)
 
-        # Results - using Gtk.Label for display. Text is set directly.
-        # UBRRn Value
-        grid.attach(Gtk.Label(label="UBRRn Value (approx.):", xalign=0), 0, 4, 1, 1)
+        note_label = Gtk.Label(label="<i>Bemærk: Antager U2Xn-bit er 0 (Normal tilstand).</i>")
+        note_label.set_use_markup(True)
+        note_label.set_halign(Gtk.Align.START)
+        grid_baud.attach(note_label, 0, 3, 2, 1)
+
+        grid_baud.attach(Gtk.Label(label="Beregnet UBRRn (fra ønsket):", xalign=0), 0, 4, 1, 1)
         self.uart_result_ubrr_label = Gtk.Label(label="", xalign=0)
-        self.uart_result_ubrr_label.set_css_classes(["monospace", "dim-label"]) # Custom CSS class for styling
-        grid.attach(self.uart_result_ubrr_label, 1, 4, 1, 1)
+        self.uart_result_ubrr_label.set_css_classes(["monospace", "dim-label"])
+        grid_baud.attach(self.uart_result_ubrr_label, 1, 4, 1, 1)
 
-        # Actual Baud Rate
-        grid.attach(Gtk.Label(label="Actual Baud Rate:", xalign=0), 0, 5, 1, 1)
+        grid_baud.attach(Gtk.Label(label="Faktisk Baud Rate:", xalign=0), 0, 5, 1, 1)
         self.uart_result_actual_baud_label = Gtk.Label(label="", xalign=0)
-        self.uart_result_actual_baud_label.set_css_classes(["success", "monospace"]) # Green-like text
-        grid.attach(self.uart_result_actual_baud_label, 1, 5, 1, 1)
+        self.uart_result_actual_baud_label.set_css_classes(["success", "monospace"])
+        grid_baud.attach(self.uart_result_actual_baud_label, 1, 5, 1, 1)
 
-        # Baud Rate Error
-        grid.attach(Gtk.Label(label="Baud Rate Error:", xalign=0), 0, 6, 1, 1)
+        grid_baud.attach(Gtk.Label(label="Baud Rate Fejl:", xalign=0), 0, 6, 1, 1)
         self.uart_result_baud_error_label = Gtk.Label(label="", xalign=0)
-        self.uart_result_baud_error_label.set_css_classes(["error", "monospace"]) # Red-like text
-        grid.attach(self.uart_result_baud_error_label, 1, 6, 1, 1)
+        self.uart_result_baud_error_label.set_css_classes(["error", "monospace"])
+        grid_baud.attach(self.uart_result_baud_error_label, 1, 6, 1, 1)
 
-    def _calculate_ubrr(self, cpu_freq_hz, desired_baud_rate):
-        """Calculates UBRRn, actual baud rate, and error for UART."""
-        # Use a small epsilon to avoid division by zero or near-zero if desired_baud_rate is tiny
+        self.baud_message_label = Gtk.Label(label="", xalign=0)
+        self.baud_message_label.set_hexpand(True)
+        self.baud_message_label.get_style_context().add_class("error-label")
+        grid_baud.attach(self.baud_message_label, 0, 7, 2, 1)
+
+        self._on_baud_input_changed(None)
+
+    def _calculate_ubrr_from_baud(self, cpu_freq_hz, desired_baud_rate):
         if desired_baud_rate <= 0:
-            return None, None, None
-
+            return None
         ubrr_float = (cpu_freq_hz / (16 * desired_baud_rate)) - 1
-
         if ubrr_float < 0:
-            return None, None, None # Indicate error if result is negative
-
+            return None
         ubrr_int = round(ubrr_float)
-        # Check if ubrr_int is within the valid range for UBRRn (0 to 4095 for 12-bit register)
         if not (0 <= ubrr_int <= 4095):
-            return None, None, None
+            return None
+        return ubrr_int
 
-        actual_baud_rate = cpu_freq_hz / (16 * (ubrr_int + 1))
-        
-        # Avoid division by zero if desired_baud_rate is effectively zero
-        if desired_baud_rate == 0:
-            error_percent = float('inf') # Or handle as a specific error state
-        else:
-            error_percent = ((actual_baud_rate - desired_baud_rate) / desired_baud_rate) * 100
+    def _calculate_baud_from_ubrr(self, cpu_freq_hz, ubrr_value):
+        if ubrr_value < 0:
+            return None
+        actual_baud_rate = cpu_freq_hz / (16 * (ubrr_value + 1))
+        return actual_baud_rate
 
-        return ubrr_int, actual_baud_rate, error_percent
+    def _on_baud_input_changed(self, widget):
+        self.baud_message_label.set_label("")
+        self.uart_result_ubrr_label.set_text("N/A")
+        self.uart_result_actual_baud_label.set_text("N/A")
+        self.uart_result_baud_error_label.set_text("N/A")
 
-    def _on_calculate_uart_clicked(self, button):
         try:
-            cpu_freq_mhz = float(self.cpu_freq_entry.get_text())  
-            desired_baud_rate = float(self.uart_desired_baud_entry.get_text())
-
+            cpu_freq_mhz = float(self.cpu_freq_entry.get_text().replace(',', '.'))
             cpu_freq_hz = cpu_freq_mhz * 1_000_000
 
-            ubrr_int, actual_baud_rate, error_percent = self._calculate_ubrr(cpu_freq_hz, desired_baud_rate)
+            desired_baud_text = self.uart_desired_baud_entry.get_text().replace(',', '.')
+            ubrr_input_text = self.uart_ubrr_input_entry.get_text().replace(',', '.')
 
-            if ubrr_int is None:
-                self._show_message_dialog("Error", "Desired Baud Rate is too high/low for the given CPU Frequency, or result is out of UBRRn range (0-4095).", Gtk.MessageType.ERROR)
-                self.uart_result_ubrr_label.set_text("N/A")
-                self.uart_result_actual_baud_label.set_text("N/A")
-                self.uart_result_baud_error_label.set_text("N/A")
+            if desired_baud_text and ubrr_input_text:
+                self.baud_message_label.set_label("Ugyldig input: Angiv enten 'Ønsket Baud Rate' ELLER 'UBRRn Værdi', ikke begge.")
+                self.uart_desired_baud_entry.set_sensitive(True)
+                self.uart_ubrr_input_entry.set_sensitive(True)
+                return
+            
+            if not desired_baud_text and not ubrr_input_text:
+                self.baud_message_label.set_label("Angiv venligst en værdi for Baud Rate eller UBRRn.")
+                self.uart_desired_baud_entry.set_sensitive(True)
+                self.uart_ubrr_input_entry.set_sensitive(True)
                 return
 
-            self.uart_result_ubrr_label.set_text(f"{ubrr_int}")
-            self.uart_result_actual_baud_label.set_text(f"{actual_baud_rate:.2f} bps")
-            self.uart_result_baud_error_label.set_text(f"{error_percent:.2f}%")
+            if desired_baud_text:
+                desired_baud_rate = float(desired_baud_text)
+                self.uart_ubrr_input_entry.set_sensitive(False)
+                
+                ubrr_int = self._calculate_ubrr_from_baud(cpu_freq_hz, desired_baud_rate)
+                if ubrr_int is None:
+                    self.baud_message_label.set_label("Ønsket Baud Rate er for høj/lav, eller resultatet er uden for UBRRn-intervallet (0-4095).")
+                    return
 
-            if abs(error_percent) > 2: # Common tolerance for UART baud rates
-                self._show_message_dialog("Baud Rate Warning",
-                                           f"The calculated baud rate error is {error_percent:.2f}%.\n"
-                                           "This might be too high for reliable communication.",
+                actual_baud_rate = self._calculate_baud_from_ubrr(cpu_freq_hz, ubrr_int)
+                error_percent = ((actual_baud_rate - desired_baud_rate) / desired_baud_rate) * 100 if desired_baud_rate != 0 else float('inf')
+
+                self.uart_result_ubrr_label.set_text(f"{ubrr_int}")
+                self.uart_result_actual_baud_label.set_text(f"{actual_baud_rate:.2f} bps")
+                self.uart_result_baud_error_label.set_text(f"{error_percent:.2f}%")
+
+                if abs(error_percent) > 2:
+                    self._show_message_dialog("Baud Rate Advarsel",
+                                           f"Den beregnede fejl er {error_percent:.2f}%.\n"
+                                           "Dette kan være for højt til pålidelig kommunikation.",
                                            Gtk.MessageType.WARNING)
 
+            elif ubrr_input_text:
+                ubrr_value = int(float(ubrr_input_text))
+                self.uart_desired_baud_entry.set_sensitive(False)
+
+                if not (0 <= ubrr_value <= 4095):
+                    self.baud_message_label.set_label("UBRRn værdi skal være mellem 0 og 4095.")
+                    return
+
+                actual_baud_rate = self._calculate_baud_from_ubrr(cpu_freq_hz, ubrr_value)
+                if actual_baud_rate is None:
+                    self.baud_message_label.set_label("UBRRn værdi er ugyldig for beregning af baud rate.")
+                    return
+                
+                self.uart_result_actual_baud_label.set_text(f"{actual_baud_rate:.2f} bps")
+                self.uart_result_ubrr_label.set_text(str(ubrr_value))
+                self.uart_result_baud_error_label.set_text("N/A (Intet ønsket)")
+
+            # Ensure correct sensitivity state if user clears one field
+            if not self.uart_desired_baud_entry.get_text() and not self.uart_ubrr_input_entry.get_text():
+                self.uart_desired_baud_entry.set_sensitive(True)
+                self.uart_ubrr_input_entry.set_sensitive(True)
+
         except ValueError:
-            self._show_message_dialog("Invalid Input", "Please enter valid numbers for CPU Frequency and Desired Baud Rate.", Gtk.MessageType.ERROR)
+            self.baud_message_label.set_label("Indtast venligst gyldige numeriske værdier.")
+            self.uart_desired_baud_entry.set_sensitive(True)
+            self.uart_ubrr_input_entry.set_sensitive(True)
         except Exception as e:
-            self._show_message_dialog("Error", f"An unexpected error occurred: {e}", Gtk.MessageType.ERROR)
+            self.baud_message_label.set_label(f"Der opstod en uventet fejl: {e}")
+            self.uart_desired_baud_entry.set_sensitive(True)
+            self.uart_ubrr_input_entry.set_sensitive(True)
+
+
+class UartTransmissionTimeCalculatorTab(Gtk.Box):
+    def __init__(self, uart_baud_calculator_tab_instance, show_message_dialog_func):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.uart_baud_calculator_tab = uart_baud_calculator_tab_instance
+        self._show_message_dialog = show_message_dialog_func
+        self._setup_ui()
+
+    def _setup_ui(self):
+        grid_time = Gtk.Grid()
+        grid_time.set_row_spacing(5)
+        grid_time.set_column_spacing(10)
+        grid_time.set_margin_start(10)
+        grid_time.set_margin_end(10)
+        grid_time.set_margin_top(10)
+        grid_time.set_margin_bottom(10)
+        self.append(grid_time)
+
+        # Formula Explanation for Transmission Time
+        formula_explanation_label = Gtk.Label()
+        formula_explanation_label.set_markup("<b>Tid = ((dataBit + startBit + stopBit + paritet) * karakterer) / Baudrate</b>")
+        formula_explanation_label.set_wrap(True)
+        formula_explanation_label.set_justify(Gtk.Justification.CENTER)
+        grid_time.attach(formula_explanation_label, 0, 0, 2, 1)
+
+        grid_time.attach(Gtk.Label(label="Databits:", xalign=0), 0, 1, 1, 1)
+        self.data_bits_entry = Gtk.Entry()
+        self.data_bits_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.data_bits_entry.connect("changed", self._on_calculate_time_clicked)
+        grid_time.attach(self.data_bits_entry, 1, 1, 1, 1)
+
+        grid_time.attach(Gtk.Label(label="Startbits:", xalign=0), 0, 2, 1, 1)
+        self.start_bits_entry = Gtk.Entry()
+        self.start_bits_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.start_bits_entry.connect("changed", self._on_calculate_time_clicked)
+        grid_time.attach(self.start_bits_entry, 1, 2, 1, 1)
+
+        grid_time.attach(Gtk.Label(label="Stopbits:", xalign=0), 0, 3, 1, 1)
+        self.stop_bits_entry = Gtk.Entry()
+        self.stop_bits_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.stop_bits_entry.connect("changed", self._on_calculate_time_clicked)
+        grid_time.attach(self.stop_bits_entry, 1, 3, 1, 1)
+
+        grid_time.attach(Gtk.Label(label="Paritet (0=Ingen, 1=Brugt):", xalign=0), 0, 4, 1, 1)
+        self.parity_combo = Gtk.ComboBoxText()
+        self.parity_combo.append_text("0 (Ingen)")
+        self.parity_combo.append_text("1 (Lige/Ulige)")
+        self.parity_combo.set_active(1)
+        self.parity_combo.connect("changed", self._on_calculate_time_clicked)
+        grid_time.attach(self.parity_combo, 1, 4, 1, 1)
+        
+        grid_time.attach(Gtk.Label(label="Karakterer:", xalign=0), 0, 5, 1, 1)
+        self.characters_entry = Gtk.Entry()
+        self.characters_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.characters_entry.connect("changed", self._on_calculate_time_clicked)
+        grid_time.attach(self.characters_entry, 1, 5, 1, 1)
+
+        grid_time.attach(Gtk.Label(label="Baud Rate (bps):", xalign=0), 0, 6, 1, 1)
+        self.time_baud_rate_entry = Gtk.Entry()
+        self.time_baud_rate_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.time_baud_rate_entry.connect("changed", self._on_calculate_time_clicked)
+        grid_time.attach(self.time_baud_rate_entry, 1, 6, 1, 1)
+
+
+        grid_time.attach(Gtk.Label(label="Transmissionstid (s):", xalign=0), 0, 8, 1, 1)
+        self.transmission_time_label = Gtk.Label(label="N/A", xalign=0)
+        self.transmission_time_label.set_css_classes(["success", "monospace"])
+        grid_time.attach(self.transmission_time_label, 1, 8, 1, 1)
+
+        self.time_message_label = Gtk.Label(label="", xalign=0)
+        self.time_message_label.set_hexpand(True)
+        self.time_message_label.get_style_context().add_class("error-label")
+        grid_time.attach(self.time_message_label, 0, 9, 2, 1)
+
+        self._on_calculate_time_clicked(None)
+
+    def _on_calculate_time_clicked(self, widget):
+        self.time_message_label.set_label("")
+        self.transmission_time_label.set_label("N/A")
+
+        try:
+            data_bits = int(self.data_bits_entry.get_text().replace(',', '.'))
+            start_bits = int(self.start_bits_entry.get_text().replace(',', '.'))
+            stop_bits = int(self.stop_bits_entry.get_text().replace(',', '.'))
+            
+            parity_selection = self.parity_combo.get_active_text()
+            parity_bit = int(parity_selection[0]) 
+
+            characters = int(self.characters_entry.get_text().replace(',', '.'))
+            baud_rate = float(self.time_baud_rate_entry.get_text().replace(',', '.'))
+
+            if data_bits <= 0 or start_bits <= 0 or stop_bits < 0 or characters <= 0:
+                self.time_message_label.set_label("Data, start, stop bits og karakterer skal være positive heltal.")
+                return
+            if not (baud_rate > 0):
+                self.time_message_label.set_label("Baud Rate skal være større end 0.")
+                return
+            if not (0 <= parity_bit <= 1):
+                 self.time_message_label.set_label("Ugyldigt paritetsvalg.")
+                 return
+
+            total_bits_per_character = data_bits + start_bits + stop_bits + parity_bit
+
+            transmission_time = (total_bits_per_character * characters) / baud_rate
+            self.transmission_time_label.set_text(f"{transmission_time:.6f} s")
+
+        except ValueError:
+            self.time_message_label.set_label("Indtast venligst gyldige numeriske værdier for alle inputfelter.")
+        except Exception as e:
+            self.time_message_label.set_label(f"Der opstod en uventet fejl: {e}")
+
+
+class UartCalculator(Gtk.Box):
+    def __init__(self, cpu_freq_entry):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_margin_start(10)
+        self.set_margin_end(10)
+        self.set_margin_top(10)
+        self.set_margin_bottom(10)
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+
+        self.cpu_freq_entry = cpu_freq_entry
+
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        header_box.set_hexpand(True)
+        header_box.set_vexpand(False)
+        self.append(header_box)
+
+        title_label = Gtk.Label(label="UART Beregner", xalign=0)
+        title_label.get_style_context().add_class("title-label")
+        header_box.append(title_label)
+
+        self.stack = Gtk.Stack()
+        self.stack.set_hexpand(True)
+        self.stack.set_vexpand(True)
+        self.append(self.stack)
+
+        self.stack_switcher = Gtk.StackSwitcher(stack=self.stack)
+        self.stack_switcher.set_halign(Gtk.Align.CENTER)
+        header_box.append(self.stack_switcher)
+
+        # Pass the message dialog helper function to sub-tabs
+        _bound_show_message_dialog = self._show_message_dialog
+
+        # Pass the cpu_freq_entry directly to the UartBaudRateCalculatorTab
+        self.baud_rate_tab = UartBaudRateCalculatorTab(cpu_freq_entry, _bound_show_message_dialog)
+        self.stack.add_titled(self.baud_rate_tab, "baud_rate_calc", "Baud Rate Beregning")
+
+        # Pass the baud_rate_tab instance to the transmission time tab
+        self.transmission_time_tab = UartTransmissionTimeCalculatorTab(self.baud_rate_tab, _bound_show_message_dialog)
+        self.stack.add_titled(self.transmission_time_tab, "transmission_time_calc", "Transmissionstid Beregning")
+
+        self.stack.set_visible_child_name("baud_rate_calc") # Set default tab
 
     def _show_message_dialog(self, title, message, message_type):
-        # Combine title and message into a single text string
-        full_message_text = f"<b>{title}</b>\n\n{message}" # Use Pango markup for bold title
-
-        dialog = Gtk.MessageDialog(
-            transient_for=self.get_root(),
-            modal=True,
-            message_type=message_type,
-            buttons=Gtk.ButtonsType.OK,
-            text=full_message_text # Pass the combined text here
-        )
-        # dialog.set_secondary_text(message) # THIS LINE IS REMOVED
-        dialog.connect("response", lambda d, r: d.destroy())
-        dialog.present()
-
-# To run this example independently:
-if __name__ == "__main__":
-    class MainWindow(Gtk.ApplicationWindow):
-        def __init__(self, app):
-            super().__init__(application=app, title="UART Calculator Example")
-            self.set_default_size(500, 400) # Set a default size for the window
-
-            self.notebook = Gtk.Notebook()
-            self.set_child(self.notebook) # Set the notebook as the main content of the window
-
-            # Instantiate UartCalculator and append it to the notebook
-            uart_calc_tab = UartCalculator(cpu_freq_entry=1_000_000)  # Example CPU frequency in Hz
-            self.notebook.append_page(uart_calc_tab, Gtk.Label(label="UART"))
-
-    class App(Gtk.Application):
-        def __init__(self):
-            super().__init__(application_id="org.example.uartcalculator")
-
-        def do_activate(self):
-            win = self.props.active_window
-            if not win:
-                win = MainWindow(self)
-            win.present()
-
-    app = App()
-    app.run(None)
+        _show_message_dialog_helper(self, title, message, message_type)

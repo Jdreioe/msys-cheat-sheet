@@ -53,5 +53,35 @@ WGM_BITS_T2 = {
     "Normal": {"WGM22": 0, "WGM21": 0, "WGM20": 0},
     "Phase Correct PWM": {"WGM22": 0, "WGM21": 0, "WGM20": 1}, # Mode 1
     "CTC": {"WGM22": 0, "WGM21": 1, "WGM20": 0},              # Mode 2
-    "Fast PWM": {"WGM22": 0, "WGM21": 1, "WGM20": 1}          # Mode 3
+    "Fast PWM": {"WGM22": 0, "WGM21": 1, "WGM20": 1},          # Mode 3
+}
+
+# For Timer0 (COM0A1:0, COM0B1:0)
+COM_BITS_T0 = {
+    "Normal port operation (OC0A/B disconnected)": {"COM0A1": 0, "COM0A0": 0, "COM0B1": 0, "COM0B0": 0},
+    "Toggle OC0A/B on compare match": {"COM0A1": 0, "COM0A0": 1, "COM0B1": 0, "COM0B0": 1}, # Note: OC0B also toggles
+    "Clear OC0A/B on compare match (non-inverting) - Fast PWM": {"COM0A1": 1, "COM0A0": 0, "COM0B1": 1, "COM0B0": 0},
+    "Set OC0A/B on compare match (inverting) - Fast PWM": {"COM0A1": 1, "COM0A0": 1, "COM0B1": 1, "COM0B0": 1},
+    "Clear OC0A/B on compare match when up-counting, Set when down-counting - Phase Correct PWM": {"COM0A1": 1, "COM0A0": 0, "COM0B1": 1, "COM0B0": 0},
+    "Set OC0A/B on compare match when up-counting, Clear when down-counting - Phase Correct PWM": {"COM0A1": 1, "COM0A0": 1, "COM0B1": 1, "COM0B0": 1},
+}
+
+# For Timer1 (COM1A1:0, COM1B1:0, COM1C1:0)
+COM_BITS_T1 = {
+    "Normal port operation (OC1A/B/C disconnected)": {"COM1A1": 0, "COM1A0": 0, "COM1B1": 0, "COM1B0": 0, "COM1C1": 0, "COM1C0": 0},
+    "Toggle OC1A/B/C on compare match": {"COM1A1": 0, "COM1A0": 1, "COM1B1": 0, "COM1B0": 1, "COM1C1": 0, "COM1C0": 1}, # Note: OC1B, OC1C also toggle
+    "Clear OC1A/B/C on compare match (non-inverting) - Fast PWM": {"COM1A1": 1, "COM1A0": 0, "COM1B1": 1, "COM1B0": 0, "COM1C1": 1, "COM1C0": 0},
+    "Set OC1A/B/C on compare match (inverting) - Fast PWM": {"COM1A1": 1, "COM1A0": 1, "COM1B1": 1, "COM1B0": 1, "COM1C1": 1, "COM1C0": 1},
+    "Clear OC1A/B/C on compare match when up-counting, Set when down-counting - Phase Correct PWM": {"COM1A1": 1, "COM1A0": 0, "COM1B1": 1, "COM1B0": 0, "COM1C1": 1, "COM1C0": 0},
+    "Set OC1A/B/C on compare match when up-counting, Clear when down-counting - Phase Correct PWM": {"COM1A1": 1, "COM1A0": 1, "COM1B1": 1, "COM1B0": 1, "COM1C1": 1, "COM1C0": 1},
+}
+
+# For Timer2 (COM2A1:0, COM2B1:0)
+COM_BITS_T2 = {
+    "Normal port operation (OC2A/B disconnected)": {"COM2A1": 0, "COM2A0": 0, "COM2B1": 0, "COM2B0": 0},
+    "Toggle OC2A/B on compare match": {"COM2A1": 0, "COM2A0": 1, "COM2B1": 0, "COM2B0": 1}, # Note: OC2B also toggles
+    "Clear OC2A/B on compare match (non-inverting) - Fast PWM": {"COM2A1": 1, "COM2A0": 0, "COM2B1": 1, "COM2B0": 0},
+    "Set OC2A/B on compare match (inverting) - Fast PWM": {"COM2A1": 1, "COM2A0": 1, "COM2B1": 1, "COM2B0": 1},
+    "Clear OC2A/B on compare match when up-counting, Set when down-counting - Phase Correct PWM": {"COM2A1": 1, "COM2A0": 0, "COM2B1": 1, "COM2B0": 0},
+    "Set OC2A/B on compare match when up-counting, Clear when down-counting - Phase Correct PWM": {"COM2A1": 1, "COM2A0": 1, "COM2B1": 1, "COM2B0": 1},
 }
