@@ -34,7 +34,7 @@ class InitializerTab(Gtk.Box):
         grid.attach(Gtk.Label(label="Vælg hvilken Timer det er:"), 0, 0, 1, 1)
         self.timer_select_combobox = Gtk.ComboBoxText()
         self.timer_select_combobox.append_text("Timer0 (8-bit)")
-        self.timer_select_combobox.append_text("Timer1 (16-bit)")
+        self.timer_select_combobox.append_text("Timer1, 3, 4, 5, 6, 7 (16-bit)")
         self.timer_select_combobox.append_text("Timer2 (8-bit)")
         # Set default selection and connect signal
         self.timer_select_combobox.set_active_id("Timer0 (8-bit)")
@@ -145,6 +145,11 @@ class InitializerTab(Gtk.Box):
         scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         output_frame.set_child(scrolled_window)
 
+        # Initialize cpu_freq_entry if it's not already set by the parent window
+        # This is crucial to prevent NoneType errors in calculations
+        if not self.cpu_freq_entry.get_text():
+            self.cpu_freq_entry.set_text("16000000") # Default to a common CPU frequency, e.g., 16 MHz
+
         # Initial call to populate options for default timer
         self._on_timer_selected(self.timer_select_combobox)
         # Initial calculation for the specific Timer0 request (now generalized)
@@ -161,12 +166,20 @@ class InitializerTab(Gtk.Box):
             combobox.set_active(-1) # -1 means no item selected
 
     def _populate_combobox(self, combobox, values_dict):
-        """Helper to populate a Gtk.ComboBoxText."""
+        """Helper to populate a Gtk.ComboBoxText and set an initial active item."""
         self._clear_combobox(combobox) # Ensure this is always the first step
+        if not values_dict:
+            # If no values, just clear and return
+            return
+
         for key in values_dict.keys():
             combobox.append_text(key)
-        if values_dict:
-            combobox.set_active(0) # Set first item as active if there are any
+        
+        # Attempt to set the first item as active
+        if combobox.get_model() and len(combobox.get_model()) > 0:
+            combobox.set_active(0)
+        else:
+            combobox.set_active(-1) # No items to select
 
     def _get_selected_timer(self):
         """Helper to get the selected timer name (e.g., 'Timer0', 'Timer1')."""
@@ -185,6 +198,7 @@ class InitializerTab(Gtk.Box):
 
         # --- Update WGM Modes based on the selected timer ---
         modes_dict = {}
+        prescaler_key = ""
         if selected_timer == "Timer0":
             modes_dict = WGM_BITS_T0
             prescaler_key = "T0_T1"
@@ -196,7 +210,11 @@ class InitializerTab(Gtk.Box):
             prescaler_key = "T2"
         
         self._populate_combobox(self.mode_combobox, modes_dict)
-        self._populate_combobox(self.prescaler_combobox, PRESCALERS_T0_T1_T2[prescaler_key])
+        # Ensure prescaler_key is valid before accessing PRESCALERS_T0_T1_T2
+        if prescaler_key and prescaler_key in PRESCALERS_T0_T1_T2:
+            self._populate_combobox(self.prescaler_combobox, PRESCALERS_T0_T1_T2[prescaler_key])
+        else:
+            self._clear_combobox(self.prescaler_combobox) # Clear if no valid prescalers
 
         # --- Update COM Modes and OCR/ICR sensitivity ---
         com_options_map = {
@@ -218,13 +236,22 @@ class InitializerTab(Gtk.Box):
             self._clear_combobox(self.com_c_combobox) # Clear options if not Timer1
         
         # Trigger mode change to update OCR/ICR visibility/sensitivity correctly
+        # This is important as it relies on the newly populated combo boxes
         self._on_mode_change(self.mode_combobox) 
         self.generate_init_code(None) # Regenerate code on timer change
 
     def _on_mode_change(self, combobox):
         selected_mode = combobox.get_active_text()
         if not selected_mode or not self.current_timer:
-            self.output_buffer.set_text("// Select a mode.")
+            # If no mode is selected or timer is not set, just ensure sensible defaults
+            self.ocra_entry.set_sensitive(False)
+            self.ocrb_entry.set_sensitive(False)
+            self.ocrc_entry.set_sensitive(False)
+            self.icr_entry.set_sensitive(False)
+            self.com_a_combobox.set_sensitive(False)
+            self.com_b_combobox.set_sensitive(False)
+            self.com_c_combobox.set_sensitive(False) # Will be re-enabled for Timer1
+            self.generate_init_code(None)
             return
 
         wgm_data = {}
@@ -234,7 +261,6 @@ class InitializerTab(Gtk.Box):
             wgm_data = WGM_BITS_T0.get(selected_mode, {})
         elif self.current_timer == "timer2": # Use specific WGM_BITS for Timer2
             wgm_data = WGM_BITS_T2.get(selected_mode, {})
-
 
         # Determine if OCR/ICR are used as TOP or for general output compare
         is_ctc_mode = "CTC" in selected_mode
@@ -284,7 +310,11 @@ class InitializerTab(Gtk.Box):
         best_prescaler_name = None
         min_diff = float('inf')
 
-        for name, value in prescaler_options.items():
+        # Convert prescaler_options dictionary values to a list of (name, value) tuples
+        # and sort them by value to prefer smaller prescalers on tie-breaks implicitly
+        sorted_prescalers = sorted(prescaler_options.items(), key=lambda item: item[1])
+
+        for name, value in sorted_prescalers:
             if value == 0: # Skip 'No Clock Source' or 'Stopped'
                 continue
             
@@ -293,9 +323,9 @@ class InitializerTab(Gtk.Box):
                 min_diff = diff
                 best_prescaler_value = value
                 best_prescaler_name = name
-            elif diff == min_diff and value < best_prescaler_value: # Prefer smaller prescaler if difference is same
-                 best_prescaler_value = value
-                 best_prescaler_name = name
+            # No need for the tie-break condition "elif diff == min_diff and value < best_prescaler_value"
+            # because we sorted the list by value, so smaller values will be encountered first
+            # if they have the same difference.
 
         return ideal_prescaler_float, best_prescaler_value, best_prescaler_name
 
@@ -330,7 +360,12 @@ class InitializerTab(Gtk.Box):
             timer_num = selected_timer[-1] # '0', '1', '2'
             timer_bit_width = 16 if timer_num == '1' else 8
             prescaler_key = "T0_T1" if timer_num in ['0', '1'] else "T2"
-            prescaler_options = PRESCALERS_T0_T1_T2[prescaler_key]
+            prescaler_options = PRESCALERS_T0_T1_T2.get(prescaler_key, {}) # Safely get prescaler options
+
+            if not prescaler_options:
+                show_warning("Configuration Error", f"No prescaler options found for timer {selected_timer}.")
+                self.generate_init_code(None)
+                return
 
             ideal_prescaler, best_prescaler_value, best_prescaler_name = \
                 self._calculate_prescaler_for_overflow(cpu_freq, desired_overflow_freq, timer_bit_width, prescaler_options)
@@ -352,7 +387,11 @@ class InitializerTab(Gtk.Box):
         output_lines = []
         try:
             # Use current_timer property, which is set by _on_timer_selected
-            timer_num = self.current_timer[-1] # '0', '1', '2'
+            timer_num = self.current_timer[-1] if self.current_timer else None
+            if timer_num is None:
+                self.output_buffer.set_text("// No timer selected.")
+                return
+
             is_16_bit = (timer_num == '1')
             
             selected_mode_name = self.mode_combobox.get_active_text()
@@ -365,10 +404,9 @@ class InitializerTab(Gtk.Box):
             if not all([selected_mode_name, selected_prescaler_name, selected_com_a_name, selected_com_b_name]):
                 self.output_buffer.set_text("// Please select all primary options (Timer, Mode, Prescaler, COM Modes) to generate code.")
                 return
-            if is_16_bit and not selected_com_c_name and self.com_c_combobox.get_sensitive():
+            if is_16_bit and self.com_c_combobox.get_sensitive() and not selected_com_c_name:
                 self.output_buffer.set_text("// Please select COM Mode for OCxC for Timer1.")
                 return
-
 
             # Get WGM bits based on explicit timer WGM_BITS
             wgm_config = {}
@@ -381,7 +419,7 @@ class InitializerTab(Gtk.Box):
 
             # Get Prescaler bits (Clock Select - CS)
             prescaler_key = "T0_T1" if timer_num in ['0', '1'] else "T2"
-            prescaler_value = PRESCALERS_T0_T1_T2[prescaler_key].get(selected_prescaler_name, 0b000) # Default to stopped
+            prescaler_value = PRESCALERS_T0_T1_T2.get(prescaler_key, {}).get(selected_prescaler_name, 0b000) # Default to stopped
 
             # Get COM bits (Output Compare Mode)
             com_options_map = {
