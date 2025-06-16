@@ -13,3 +13,9 @@ Initializer-værktøj
 lidt info om bit-shift, talsystemer og om stakken.
 
 og andet
+
+Kræver:
+* Python
+
+Setup: Kør følgende i terminal efter Python er installeret:
+pip install PyGObject
