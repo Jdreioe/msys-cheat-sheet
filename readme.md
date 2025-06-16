@@ -2,15 +2,14 @@ Dette er et cheat-sheet til MSYS eksamen, lavet over læseferien 2025 af Jonas D
 
 Med hjælp fra min Python-erfaring fra gymnasiet, har jeg lavet en cheat-sheet med:
 
-clock cycle lommeregner
-
-timer0, timer1, timer2 lommeregner 
+timer0, timer1, timer2 lommeregner og reverse
 
 beregning af prescaler
 
 beregning af uart-
 
-c <--> assembly
+Initializer-værktøj
 
 lidt info om bit-shift, talsystemer og om stakken.
 
+og andet
