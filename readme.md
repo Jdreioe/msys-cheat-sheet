@@ -18,4 +18,7 @@ Kræver:
 * Python
 
 Setup: Kør følgende i terminal efter Python er installeret:
+
 pip install PyGObject
+
+Derefter, kør python main_gtk.py
